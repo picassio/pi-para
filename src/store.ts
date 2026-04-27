@@ -5,9 +5,12 @@
  * re-indexing after wiki changes, and embedding lifecycle.
  */
 
+import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { createStore, extractSnippet } from "@picassio/qmd";
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore, CollectionConfig } from "@picassio/qmd";
 import { parseFrontmatter } from "./frontmatter.js";
 import { matchesScope } from "./scope.js";
 import type { PageFrontmatter, PageRef, ParaCategory } from "./wiki.js";
@@ -47,6 +50,25 @@ const RAW_CONTEXT = "Immutable source material: articles, documents, notes. Not 
 
 const pendingEmbeds = new WeakMap<QMDStore, Promise<void>>();
 
+// -- qmd config loading ------------------------------------------------------
+
+/**
+ * Read providers from ~/.config/qmd/index.yml.
+ * Returns undefined if no config file or no providers configured.
+ */
+function loadQmdProviders(): Record<string, unknown> | undefined {
+  const configPath = join(homedir(), ".config", "qmd", "index.yml");
+  if (!existsSync(configPath)) return undefined;
+
+  try {
+    const content = readFileSync(configPath, "utf-8");
+    const config = parseYaml(content) as { providers?: Record<string, unknown> };
+    return config?.providers;
+  } catch {
+    return undefined;
+  }
+}
+
 // -- Functions ---------------------------------------------------------------
 
 /**
@@ -60,6 +82,10 @@ const pendingEmbeds = new WeakMap<QMDStore, Promise<void>>();
  * and schedules embed() in the background.
  */
 export async function openStore(wikiDir: string): Promise<QMDStore> {
+  // Read providers from ~/.config/qmd/index.yml so external API providers
+  // (embed, chat, rerank) are used instead of local GGUF models.
+  const providers = loadQmdProviders();
+
   const store = await createStore({
     dbPath: join(wikiDir, ".qmd.sqlite"),
     config: {
@@ -75,6 +101,7 @@ export async function openStore(wikiDir: string): Promise<QMDStore> {
           includeByDefault: false,
         },
       },
+      ...(providers ? { providers: providers as CollectionConfig["providers"] } : {}),
     },
   });
 
