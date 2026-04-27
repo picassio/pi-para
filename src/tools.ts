@@ -768,6 +768,9 @@ export function registerTools(
       "Fetches the content, saves a raw copy, and returns it with schema and index " +
       "so you can synthesize wiki pages via wiki_write.",
     promptSnippet: "Ingest a URL, file, or text into the PARA wiki knowledge base",
+    promptGuidelines: [
+      "Use wiki_ingest when the user provides a URL, file path, or text to add to the knowledge base.",
+    ],
     parameters: WikiIngestParams,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       return ingestExec(params);
@@ -812,6 +815,10 @@ export function registerTools(
       "Returns relevant pages with content snippets. " +
       "Use global=true to search across all project scopes.",
     promptSnippet: "Search the PARA wiki for relevant knowledge pages",
+    promptGuidelines: [
+      "Use wiki_query BEFORE answering questions that might have relevant context in the wiki — architecture decisions, past debugging solutions, project conventions, or domain knowledge.",
+      "Use wiki_query when the user asks about something you previously discussed or captured in the wiki.",
+    ],
     parameters: WikiQueryParams,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       return queryExec(params);
@@ -849,6 +856,10 @@ export function registerTools(
       "Optionally update index.md and append to log.md. " +
       "Pages are automatically re-indexed for search after writing.",
     promptSnippet: "Write/update PARA wiki pages with frontmatter and markdown body",
+    promptGuidelines: [
+      "Use wiki_write after wiki_ingest to create/update pages based on the ingested content.",
+      "Use wiki_write to save valuable answers or synthesis back into the wiki when they add new knowledge.",
+    ],
     parameters: WikiWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       return writeExec(params);
