@@ -1,6 +1,6 @@
 {
   "name": "@picassio/pi-para",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "PARA Knowledge Base Extension for pi \u2014 persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
