@@ -811,8 +811,9 @@ export function registerTools(
       "Use wiki_ingest when the user provides a URL, file path, or text to add to the knowledge base.",
     ],
     parameters: WikiIngestParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      return ingestExec(params);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: ingesting...");
+      try { return await ingestExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
       const srcType = args.sourceType ?? detectSourceType(args.source);
@@ -859,8 +860,9 @@ export function registerTools(
       "Use wiki_query when the user asks about something you previously discussed or captured in the wiki.",
     ],
     parameters: WikiQueryParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      return queryExec(params);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: searching...");
+      try { return await queryExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
       const q =
@@ -901,8 +903,9 @@ export function registerTools(
       "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked.",
     ],
     parameters: WikiWriteParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      return writeExec(params);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: writing...");
+      try { return await writeExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
       const count = args.pages?.length ?? 0;
@@ -945,8 +948,9 @@ export function registerTools(
       "or by title. Returns the full page content with frontmatter metadata.",
     promptSnippet: "Read a wiki page by path or title",
     parameters: WikiReadParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      return readExec(params);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: reading...");
+      try { return await readExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
       return new Text(
@@ -978,8 +982,9 @@ export function registerTools(
       "Updates frontmatter and re-indexes.",
     promptSnippet: "Move a wiki page between PARA categories",
     parameters: WikiMoveParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      return moveExec(params);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: moving...");
+      try { return await moveExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
       return new Text(
@@ -1014,8 +1019,9 @@ export function registerTools(
       "index drift, and duplicate slugs. Auto-fixes simple issues by default.",
     promptSnippet: "Run wiki health checks and auto-fix issues",
     parameters: WikiLintParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      return lintExec(params);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: linting...");
+      try { return await lintExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
       const mode = args.autoFix === false ? "report-only" : "auto-fix";
@@ -1057,8 +1063,9 @@ export function registerTools(
       "Returns content with a summary prompt for you to synthesize.",
     promptSnippet: "Summarize wiki pages, categories, or the entire wiki",
     parameters: WikiSummarizeParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      return summarizeExec(params);
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: summarizing...");
+      try { return await summarizeExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
       let text =
