@@ -401,10 +401,49 @@ function createWriteExecute(
       }
     }
 
-    // Update index.md if provided
+    // Update index.md — use provided content if given, otherwise auto-rebuild.
+    // Auto-rebuild ensures the index stays in sync even when the LLM
+    // forgets to pass indexContent.
     let indexUpdated = false;
     if (params.indexContent) {
       await writeIndex(wikiDir, params.indexContent);
+      indexUpdated = true;
+    } else if (pagesWritten.length > 0) {
+      // Auto-rebuild index from all pages on disk
+      const allPages = await listPages(wikiDir);
+      const sections: Record<ParaCategory, string[]> = {
+        projects: [],
+        areas: [],
+        resources: [],
+        archives: [],
+      };
+      for (const ref of allPages) {
+        const page = await readPage(wikiDir, ref.category, ref.slug);
+        const title = page?.frontmatter.title ?? ref.title;
+        const summary = page?.body.split("\n").find(l => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim() ?? "";
+        const desc = summary.length > 120 ? summary.slice(0, 117) + "..." : summary;
+        sections[ref.category].push(`- [[${ref.slug}]] \u2014 ${title}${desc ? ": " + desc : ""}`);
+      }
+      const indexLines = [
+        "# Wiki Index",
+        "",
+        "## Projects",
+        "",
+        sections.projects.length > 0 ? sections.projects.join("\n") : "_No active projects yet._",
+        "",
+        "## Areas",
+        "",
+        sections.areas.length > 0 ? sections.areas.join("\n") : "_No areas defined yet._",
+        "",
+        "## Resources",
+        "",
+        sections.resources.length > 0 ? sections.resources.join("\n") : "_No resources yet._",
+        "",
+        "## Archives",
+        "",
+        sections.archives.length > 0 ? sections.archives.join("\n") : "_No archived items._",
+      ];
+      await writeIndex(wikiDir, indexLines.join("\n"));
       indexUpdated = true;
     }
 
