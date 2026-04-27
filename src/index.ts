@@ -260,7 +260,9 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     // 1. Auto-capture if enabled
     if (config.autoCapture && store && currentScope) {
       const model = ctx.model;
-      if (model) {
+      if (!model) {
+        console.error("[pi-para] auto-capture skipped: no model available at shutdown");
+      } else {
         const sessionFile = ctx.sessionManager.getSessionFile() ?? "unknown";
         const branch = ctx.sessionManager.getBranch();
         const messages: AgentMessage[] = [];
@@ -272,7 +274,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
 
         if (messages.length > 0) {
           try {
-            await autoCapture(
+            const result = await autoCapture(
               wikiDir,
               store,
               messages,
@@ -282,9 +284,15 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
               ctx.modelRegistry,
               config.autoCaptureTimeoutMs,
             );
-          } catch {
+            if (result.skipped) {
+              console.error(`[pi-para] auto-capture skipped: ${result.reason ?? "trivial session"}`);
+            } else {
+              console.error(`[pi-para] auto-capture: ${result.pagesCreated.length} created, ${result.pagesUpdated.length} updated`);
+            }
+          } catch (err) {
             // Auto-capture failures are non-fatal — session file still exists
             // for manual capture later via /wiki-capture
+            console.error(`[pi-para] auto-capture failed: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
       }
