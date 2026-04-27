@@ -59,7 +59,7 @@ function getDefaultConfig(): ParaConfig {
     contextIncludeSchema: true,
     contextIncludeIndex: true,
     autoCapture: true,
-    autoCaptureTimeoutMs: 30_000,
+    autoCaptureTimeoutMs: 60_000,
     lintAutoFix: true,
     lintStaleDays: 90,
     searchLimit: 10,

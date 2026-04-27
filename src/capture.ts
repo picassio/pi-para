@@ -35,7 +35,7 @@ export interface CaptureResult {
 
 // -- Constants ---------------------------------------------------------------
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 60_000;
 const NOTHING_PATTERN = /nothing to capture/i;
 
 // -- Helpers -----------------------------------------------------------------
