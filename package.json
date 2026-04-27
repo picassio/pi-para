@@ -62,5 +62,16 @@
     "knowledge-base",
     "wiki"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/picassio/pi-para.git"
+  },
+  "homepage": "https://github.com/picassio/pi-para#readme",
+  "bugs": {
+    "url": "https://github.com/picassio/pi-para/issues"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }
