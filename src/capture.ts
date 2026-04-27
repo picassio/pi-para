@@ -53,6 +53,24 @@ function parsePagePath(pagePath: string): { category: ParaCategory; slug: string
   return { category: cat as ParaCategory, slug };
 }
 
+/** Estimate total text chars in user + assistant messages. */
+function estimateSessionChars(messages: AgentMessage[]): number {
+  let total = 0;
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    const content = "content" in m ? m.content : undefined;
+    if (typeof content === "string") { total += content.length; continue; }
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (typeof block === "object" && block !== null && "type" in block && block.type === "text" && "text" in block) {
+          total += (block as { text: string }).text.length;
+        }
+      }
+    }
+  }
+  return total;
+}
+
 /**
  * Extract pages written from agent messages by inspecting tool results.
  *
@@ -224,6 +242,22 @@ export async function autoCapture(
   modelRegistry: ModelRegistry,
   timeoutMs?: number,
 ): Promise<CaptureResult> {
+  // Short-circuit: skip trivial sessions without spending LLM tokens.
+  // Quick lookups (3-4 messages, short answers) aren't worth a 10-30s
+  // LLM round-trip that almost always concludes "nothing to capture."
+  const MIN_MESSAGES = 8;   // ~4 user+assistant turns
+  const MIN_CHARS = 1000;   // ~250 tokens of actual content
+  const totalChars = estimateSessionChars(messages);
+
+  if (messages.length < MIN_MESSAGES || totalChars < MIN_CHARS) {
+    return {
+      pagesCreated: [],
+      pagesUpdated: [],
+      skipped: true,
+      reason: `trivial session (${messages.length} messages, ${totalChars} chars)`,
+    };
+  }
+
   // Serialize the session conversation to text
   const serialized = serializeSessionForWiki(messages);
 

@@ -251,22 +251,42 @@ const trivialMessages = [
 const substantiveMessages = [
   {
     role: "user" as const,
-    content: [{ type: "text" as const, text: "Help me debug this SSL cert issue. The intermediate cert is expired." }],
+    content: [{ type: "text" as const, text: "Help me debug this SSL cert issue. The intermediate cert is expired and our CI pipeline is failing on every build." }],
     timestamp: Date.now(),
   },
   {
     role: "assistant" as const,
-    content: [{ type: "text" as const, text: "The issue is likely an expired intermediate certificate cached by Node.js. Solution: clear the cert cache before renewal." }],
+    content: [{ type: "text" as const, text: "The issue is likely an expired intermediate certificate cached by Node.js. The TLS implementation caches intermediate certs in memory and on disk. When the intermediate expires, all connections through that chain fail silently. Solution: clear the cert cache before renewal by deleting the cached bundle and restarting the Node process." }],
     timestamp: Date.now(),
   },
   {
     role: "user" as const,
-    content: [{ type: "text" as const, text: "That fixed it. The CI pipeline is now passing." }],
+    content: [{ type: "text" as const, text: "That fixed it. The CI pipeline is now passing. Should we add this to our deployment checklist?" }],
     timestamp: Date.now(),
   },
   {
     role: "assistant" as const,
-    content: [{ type: "text" as const, text: "The root cause was the intermediate certificate cache. In CI environments, always clear the TLS cert cache before cert operations." }],
+    content: [{ type: "text" as const, text: "Yes, definitely. The root cause was the intermediate certificate cache. In CI environments, always clear the TLS cert cache before cert operations. I recommend adding a pre-deployment step that runs: rm -rf /etc/ssl/certs/.cache && update-ca-certificates. This prevents stale intermediate certs from breaking builds." }],
+    timestamp: Date.now(),
+  },
+  {
+    role: "user" as const,
+    content: [{ type: "text" as const, text: "Good idea. Also, can we set up monitoring for cert expiration? We should get alerts 30 days before any cert expires." }],
+    timestamp: Date.now(),
+  },
+  {
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text: "For cert monitoring, use a cron job that checks expiration dates via openssl: openssl x509 -enddate -noout -in /path/to/cert.pem. Parse the date, compare to now + 30 days, and send a Slack alert if within the window. We should also monitor the intermediate chain, not just leaf certs." }],
+    timestamp: Date.now(),
+  },
+  {
+    role: "user" as const,
+    content: [{ type: "text" as const, text: "Perfect. Let me implement that monitoring script. One more thing - should we pin the intermediate cert version in our Docker images?" }],
+    timestamp: Date.now(),
+  },
+  {
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text: "Pinning intermediate certs in Docker images is a double-edged sword. It prevents surprise rotations but means you must manually update when the pinned cert expires. Better approach: use a cert manager like cert-manager in K8s that auto-renews, or bake in a startup script that refreshes certs from a trusted source on container boot." }],
     timestamp: Date.now(),
   },
 ];
@@ -286,13 +306,13 @@ describe("autoCapture", () => {
     );
 
     expect(result.skipped).toBe(true);
-    expect(result.reason).toBe("empty session");
+    expect(result.reason).toContain("trivial session");
     expect(result.pagesCreated).toEqual([]);
     expect(result.pagesUpdated).toEqual([]);
     expect(mockAgentPromptCalls).toHaveLength(0);
   });
 
-  it("skips trivial sessions when agent says nothing to capture", async () => {
+  it("skips trivial sessions without calling the agent", async () => {
     mockAgentBehavior = "nothing";
 
     const result = await autoCapture(
@@ -306,10 +326,10 @@ describe("autoCapture", () => {
     );
 
     expect(result.skipped).toBe(true);
-    expect(result.reason).toBe("trivial session");
+    expect(result.reason).toContain("trivial session");
     expect(result.pagesCreated).toEqual([]);
-    // Agent was called (it decided nothing to capture)
-    expect(mockAgentPromptCalls).toHaveLength(1);
+    // Agent was NOT called — short-circuited before LLM
+    expect(mockAgentPromptCalls).toHaveLength(0);
   });
 
   it("captures knowledge from a substantive session", async () => {
@@ -367,7 +387,7 @@ describe("autoCapture", () => {
     await autoCapture(
       wikiDir,
       store!,
-      trivialMessages,
+      substantiveMessages,
       testScope,
       testSessionFile,
       testModel,
@@ -425,7 +445,7 @@ describe("autoCapture", () => {
     await autoCapture(
       wikiDir,
       store!,
-      trivialMessages,
+      substantiveMessages,
       testScope,
       testSessionFile,
       testModel,
