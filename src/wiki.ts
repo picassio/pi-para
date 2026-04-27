@@ -1,0 +1,386 @@
+/**
+ * Wiki filesystem operations — manages ~/.pi/wiki/ directory structure.
+ *
+ * Handles CRUD for wiki pages (markdown + YAML frontmatter), index/log
+ * maintenance, page moves between PARA categories, and wiki initialization.
+ */
+
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  unlink,
+  readdir,
+  access,
+} from "node:fs/promises";
+import { join } from "node:path";
+import {
+  parseFrontmatter,
+  serializeFrontmatter,
+} from "./frontmatter.js";
+
+// -- Types ------------------------------------------------------------------
+
+export type ParaCategory = "projects" | "areas" | "resources" | "archives";
+
+export interface PageFrontmatter {
+  title: string;
+  para: ParaCategory;
+  scope: string[];
+  tags: string[];
+  sources: string[];
+  created: string; // ISO date
+  updated: string; // ISO date
+  links: string[]; // outgoing [[wikilinks]]
+}
+
+export interface WikiPage {
+  category: ParaCategory;
+  slug: string;
+  frontmatter: PageFrontmatter;
+  body: string;
+}
+
+export interface PageRef {
+  category: ParaCategory;
+  slug: string;
+  title: string;
+  path: string; // relative path within wiki dir
+}
+
+export interface LogEntry {
+  date: string;
+  operation: "ingest" | "query" | "lint" | "capture" | "move" | "archive";
+  summary: string;
+  pages: string[];
+}
+
+// -- Constants ---------------------------------------------------------------
+
+export const PARA_CATEGORIES: readonly ParaCategory[] = [
+  "projects",
+  "areas",
+  "resources",
+  "archives",
+];
+
+const DEFAULT_SCHEMA = `# Wiki Schema
+
+## Page Format
+
+Every wiki page is a markdown file with YAML frontmatter:
+
+\`\`\`yaml
+---
+title: Page Title
+para: projects | areas | resources | archives
+scope:
+  - project-name
+  - global
+tags:
+  - topic-tag
+sources:
+  - https://example.com
+  - session:~/.pi/agent/sessions/.../file.jsonl
+created: "2026-01-01"
+updated: "2026-01-01"
+links:
+  - other-page-slug
+---
+\`\`\`
+
+## PARA Categories
+
+- **projects/**: Active, goal-defined work with an end date. Default scope: current project name.
+- **areas/**: Ongoing responsibilities with no end date. Default scope: \`["global"]\`.
+- **resources/**: Reference material, how-tos, patterns. Scope assigned by content analysis.
+- **archives/**: Completed, deprecated, or inactive items. Moved from other categories.
+
+## Naming Conventions
+
+- Slugs: lowercase, hyphens, no special characters (e.g., \`ssl-cert-gotchas\`)
+- One concept per page
+- Use [[wikilinks]] for cross-references: \`[[slug]]\`
+
+## Wiki Summary Format
+
+\`\`\`markdown
+## Topic
+[What this page covers]
+
+## Key Facts
+- [Established knowledge points]
+
+## Insights
+- [Non-obvious findings, patterns, implications]
+
+## Connections
+- [[related-page]] — how this relates
+
+## Open Questions
+- [Gaps in knowledge, unresolved contradictions]
+
+## Sources
+- [Source URLs, file paths, session references]
+\`\`\`
+
+## Index Format
+
+\`index.md\` is organized by PARA category with one-line summaries per page.
+
+## Log Format
+
+\`log.md\` uses the heading format: \`## [YYYY-MM-DD] operation | summary\`
+
+## Tone
+
+Technical, concise, factual. No fluff.
+
+## Updates vs. New Pages
+
+- Update an existing page when new information relates to the same concept
+- Create a new page when the concept is distinct enough to stand alone
+- When in doubt, create a new page and add [[wikilinks]]
+
+## Archiving
+
+Move projects to archives when:
+- The project goal is completed
+- No log entries in 90+ days
+- Explicitly requested by user
+`;
+
+const DEFAULT_INDEX = `# Wiki Index
+
+## Projects
+
+_No active projects yet._
+
+## Areas
+
+_No areas defined yet._
+
+## Resources
+
+_No resources yet._
+
+## Archives
+
+_No archived items._
+`;
+
+const DEFAULT_LOG = "# Activity Log\n";
+
+const DEFAULT_SESSIONS = "# Session Digests\n";
+
+// -- Helpers -----------------------------------------------------------------
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function seedFile(path: string, content: string): Promise<void> {
+  if (!(await fileExists(path))) {
+    await writeFile(path, content, "utf-8");
+  }
+}
+
+// -- Functions ---------------------------------------------------------------
+
+/**
+ * Initialize a wiki directory. Creates the PARA category directories,
+ * raw source directories, and seeds schema.md, index.md, log.md, and
+ * sessions.md if they do not already exist. Idempotent.
+ */
+export async function initWiki(wikiDir: string): Promise<void> {
+  // Create PARA category directories
+  for (const cat of PARA_CATEGORIES) {
+    await mkdir(join(wikiDir, cat), { recursive: true });
+  }
+
+  // Create raw source directories
+  for (const sub of ["articles", "docs", "notes"]) {
+    await mkdir(join(wikiDir, "raw", sub), { recursive: true });
+  }
+
+  // Seed default files (only if missing)
+  await seedFile(join(wikiDir, "schema.md"), DEFAULT_SCHEMA);
+  await seedFile(join(wikiDir, "index.md"), DEFAULT_INDEX);
+  await seedFile(join(wikiDir, "log.md"), DEFAULT_LOG);
+  await seedFile(join(wikiDir, "sessions.md"), DEFAULT_SESSIONS);
+}
+
+/**
+ * Read a wiki page by category and slug. Returns null if the page does
+ * not exist. Parses YAML frontmatter via frontmatter.ts.
+ */
+export async function readPage(
+  wikiDir: string,
+  category: ParaCategory,
+  slug: string,
+): Promise<WikiPage | null> {
+  const filePath = join(wikiDir, category, `${slug}.md`);
+  let content: string;
+  try {
+    content = await readFile(filePath, "utf-8");
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
+
+  const { frontmatter, body } = parseFrontmatter(content);
+  return { category, slug, frontmatter, body };
+}
+
+/**
+ * Write a wiki page. Creates the category directory if needed. Serializes
+ * frontmatter and body via frontmatter.ts.
+ */
+export async function writePage(
+  wikiDir: string,
+  page: WikiPage,
+): Promise<void> {
+  const dirPath = join(wikiDir, page.category);
+  await mkdir(dirPath, { recursive: true });
+  const filePath = join(dirPath, `${page.slug}.md`);
+  const content = serializeFrontmatter(page.frontmatter, page.body);
+  await writeFile(filePath, content, "utf-8");
+}
+
+/**
+ * Delete a wiki page. No-op if the page does not exist.
+ */
+export async function deletePage(
+  wikiDir: string,
+  category: ParaCategory,
+  slug: string,
+): Promise<void> {
+  const filePath = join(wikiDir, category, `${slug}.md`);
+  try {
+    await unlink(filePath);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Move a page between PARA categories. Updates the page's `para` and
+ * `updated` frontmatter fields. The slug is preserved.
+ */
+export async function movePage(
+  wikiDir: string,
+  from: PageRef,
+  toCategory: ParaCategory,
+): Promise<void> {
+  const srcPath = join(wikiDir, from.category, `${from.slug}.md`);
+  const destDir = join(wikiDir, toCategory);
+  const destPath = join(destDir, `${from.slug}.md`);
+
+  // Read source
+  const content = await readFile(srcPath, "utf-8");
+  const { frontmatter, body } = parseFrontmatter(content);
+
+  // Update frontmatter
+  frontmatter.para = toCategory;
+  frontmatter.updated = new Date().toISOString();
+
+  // Write to new location, then remove old file
+  await mkdir(destDir, { recursive: true });
+  await writeFile(destPath, serializeFrontmatter(frontmatter, body), "utf-8");
+  await unlink(srcPath);
+}
+
+/**
+ * List pages across one or all PARA categories. Returns PageRef objects
+ * sorted by category then slug.
+ */
+export async function listPages(
+  wikiDir: string,
+  category?: ParaCategory,
+): Promise<PageRef[]> {
+  const categories = category ? [category] : PARA_CATEGORIES;
+  const refs: PageRef[] = [];
+
+  for (const cat of categories) {
+    const dirPath = join(wikiDir, cat);
+    let entries: string[];
+    try {
+      entries = await readdir(dirPath);
+    } catch {
+      continue; // directory doesn't exist yet
+    }
+
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const slug = entry.slice(0, -3);
+      const filePath = join(dirPath, entry);
+      const content = await readFile(filePath, "utf-8");
+      const { frontmatter } = parseFrontmatter(content);
+      refs.push({
+        category: cat,
+        slug,
+        title: frontmatter.title,
+        path: `${cat}/${entry}`,
+      });
+    }
+  }
+
+  // Sort by category order, then slug alphabetically
+  refs.sort((a, b) => {
+    const catCmp =
+      PARA_CATEGORIES.indexOf(a.category) -
+      PARA_CATEGORIES.indexOf(b.category);
+    if (catCmp !== 0) return catCmp;
+    return a.slug.localeCompare(b.slug);
+  });
+
+  return refs;
+}
+
+/**
+ * Read the wiki index (index.md).
+ */
+export async function readIndex(wikiDir: string): Promise<string> {
+  return readFile(join(wikiDir, "index.md"), "utf-8");
+}
+
+/**
+ * Write the wiki index (index.md).
+ */
+export async function writeIndex(
+  wikiDir: string,
+  content: string,
+): Promise<void> {
+  await writeFile(join(wikiDir, "index.md"), content, "utf-8");
+}
+
+/**
+ * Append an entry to the activity log (log.md).
+ */
+export async function appendLog(
+  wikiDir: string,
+  entry: LogEntry,
+): Promise<void> {
+  const logPath = join(wikiDir, "log.md");
+  const existing = await readFile(logPath, "utf-8");
+  const pages = entry.pages.length > 0 ? entry.pages.join(", ") : "none";
+  const line = `\n## [${entry.date}] ${entry.operation} | ${entry.summary}\nPages: ${pages}\n`;
+  await writeFile(logPath, existing + line, "utf-8");
+}
+
+/**
+ * Read the wiki schema (schema.md).
+ */
+export async function readSchema(wikiDir: string): Promise<string> {
+  return readFile(join(wikiDir, "schema.md"), "utf-8");
+}

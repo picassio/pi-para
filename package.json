@@ -1,0 +1,66 @@
+{
+  "name": "@picassio/pi-para",
+  "version": "0.1.0",
+  "description": "PARA Knowledge Base Extension for pi \u2014 persistent, LLM-curated personal wiki",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "dist",
+    "src",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "yaml": "^2.8.2"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-agent-core": "^0.70.2",
+    "@mariozechner/pi-ai": "^0.70.2",
+    "@mariozechner/pi-coding-agent": "^0.70.2",
+    "@mariozechner/pi-tui": "^0.70.2",
+    "@picassio/qmd": ">=2.1.0",
+    "typebox": "^1.1.24"
+  },
+  "peerDependenciesMeta": {
+    "@picassio/qmd": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@mariozechner/pi-agent-core": "^0.70.2",
+    "@mariozechner/pi-ai": "^0.70.2",
+    "@mariozechner/pi-coding-agent": "^0.70.2",
+    "@mariozechner/pi-tui": "^0.70.2",
+    "@picassio/qmd": "file:../qmd",
+    "@types/node": "^24.3.0",
+    "typebox": "^1.1.34",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  },
+  "keywords": [
+    "pi",
+    "extension",
+    "para",
+    "knowledge-base",
+    "wiki"
+  ],
+  "license": "MIT"
+}
