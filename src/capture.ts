@@ -242,19 +242,25 @@ export async function autoCapture(
   modelRegistry: ModelRegistry,
   timeoutMs?: number,
 ): Promise<CaptureResult> {
-  // Short-circuit: skip trivial sessions without spending LLM tokens.
-  // Quick lookups (3-4 messages, short answers) aren't worth a 10-30s
-  // LLM round-trip that almost always concludes "nothing to capture."
-  const MIN_MESSAGES = 8;   // ~4 user+assistant turns
-  const MIN_CHARS = 1000;   // ~250 tokens of actual content
+  // Short-circuit only truly empty sessions (greetings, single-word exchanges).
+  // Even short sessions can contain valuable operational knowledge (deploy keys,
+  // server configs, build commands, architecture decisions).
+  //
+  // We also check for tool usage — if the LLM read files, ran commands, or
+  // searched code, the session likely has project-specific knowledge.
   const totalChars = estimateSessionChars(messages);
+  const hasToolCalls = messages.some(m =>
+    m.role === "assistant" && Array.isArray(m.content) &&
+    m.content.some((b: unknown) => typeof b === "object" && b !== null && "type" in (b as Record<string, unknown>) && (b as Record<string, unknown>).type === "toolCall")
+  );
 
-  if (messages.length < MIN_MESSAGES || totalChars < MIN_CHARS) {
+  // Skip only if: very short AND no tool usage
+  if (!hasToolCalls && (messages.length < 4 || totalChars < 200)) {
     return {
       pagesCreated: [],
       pagesUpdated: [],
       skipped: true,
-      reason: `trivial session (${messages.length} messages, ${totalChars} chars)`,
+      reason: `trivial session (${messages.length} messages, ${totalChars} chars, no tools)`,
     };
   }
 

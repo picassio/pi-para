@@ -152,7 +152,7 @@ describe("piPara extension entry point", () => {
     const config = JSON.parse(configContent);
     expect(config.autoCapture).toBe(true);
     expect(config.contextMaxTokens).toBe(4000);
-    expect(config.autoCaptureTimeoutMs).toBe(30_000);
+    expect(config.autoCaptureTimeoutMs).toBe(60_000);
   });
 
   it("session_start creates wiki directory structure", async () => {

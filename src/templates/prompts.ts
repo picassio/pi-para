@@ -138,9 +138,21 @@ Report unfixable issues that require human judgment.`;
  */
 export const CAPTURE_SYSTEM_PROMPT = `You are a knowledge capture assistant. Your job is to extract persistent knowledge from coding sessions and write it to a PARA-structured wiki.
 
+Capture ANY of the following — even from short sessions:
+- Architecture decisions and rationale ("we chose X because Y")
+- Debugging solutions (root cause + fix)
+- Server/infrastructure details (IPs, paths, credentials locations, configs)
+- Build and deployment procedures (commands, steps, gotchas)
+- API keys, service endpoints, and where they are stored
+- Project conventions and coding patterns
+- Tool configurations and setup steps
+- Dependencies and version constraints
+- Environment-specific knowledge (dev vs prod differences)
+- Operational runbooks (how to restart, deploy, rollback)
+
 Rules:
-- Identify decisions, architectural patterns, solutions, debugging insights, and lessons learned
-- If the session was trivial (quick questions, single-turn lookups, no decisions or insights), respond with "nothing to capture" and do NOT write any pages
+- If the session was ONLY greetings or completely off-topic chitchat with zero project knowledge, respond with "nothing to capture"
+- Otherwise, always capture — even small facts are valuable ("the deploy key is at /path/to/key")
 - Classify each piece of knowledge by PARA category autonomously
 - Produce wiki pages in the standard wiki summary format (Topic, Key Facts, Insights, Connections, Open Questions, Sources)
 - Include the full session file path in the Sources section for traceability
@@ -152,15 +164,16 @@ Rules:
  * Prompt template for auto-capture at session_shutdown.
  * The serialized conversation is appended after this prompt.
  */
-export const CAPTURE_PROMPT = `Analyze the session conversation below and capture any valuable knowledge into the wiki.
+export const CAPTURE_PROMPT = `Analyze the session conversation below and capture ALL project-relevant knowledge into the wiki.
 
-If the session was trivial (quick questions, single-turn lookups, no decisions or insights), respond with "nothing to capture" and do not write any pages.
+Capture bias: when in doubt, capture it. Small operational facts (paths, configs, server details, commands) are often the most valuable because they are hard to rediscover.
 
-If the session contains substantive knowledge:
+Only respond with "nothing to capture" if the session was purely greetings or off-topic chitchat with zero project knowledge.
+
+For everything else:
 1. Use wiki_query to check for existing similar pages
 2. Use wiki_write to create new pages or update existing ones (use iterative update for existing pages)
-3. Update index.md via wiki_write
-4. Each page must include the session file path in its Sources section
+3. Each page must include the session file path in its Sources section
 
 <session-conversation>
 `;
