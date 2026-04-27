@@ -859,6 +859,7 @@ export function registerTools(
     promptGuidelines: [
       "Use wiki_write after wiki_ingest to create/update pages based on the ingested content.",
       "Use wiki_write to save valuable answers or synthesis back into the wiki when they add new knowledge.",
+      "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked.",
     ],
     parameters: WikiWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
