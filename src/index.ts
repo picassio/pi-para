@@ -98,6 +98,9 @@ interface ParaSessionState {
   lastScope: ProjectScope;
   capturedInSession: string[];
   sessionFile: string | null;
+  /** ID of the last session entry processed by auto-capture.
+   *  On resume+quit, only messages after this entry are captured. */
+  lastCapturedEntryId: string | null;
 }
 
 const ENTRY_TYPE = "pi-para-state";
@@ -130,6 +133,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   let store: QMDStore | null = null;
   let currentScope: ProjectScope | null = null;
   let capturedInSession: string[] = [];
+  let lastCapturedEntryId: string | null = null;
   let storeDisabled = false;
 
   // Accessors for closures
@@ -149,6 +153,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       lastScope: scope,
       capturedInSession,
       sessionFile: null,
+      lastCapturedEntryId,
     } satisfies ParaSessionState);
   };
 
@@ -188,6 +193,8 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   // -- session_start: init wiki, open store, detect scope --------------------
 
   pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.setStatus("pi-para", "wiki: loading...");
+
     // 1. Init wiki directory (idempotent — creates dirs and seeds files if missing)
     try {
       await initWiki(wikiDir);
@@ -199,6 +206,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     }
 
     // 2. Open qmd store
+    ctx.ui.setStatus("pi-para", "wiki: indexing...");
     storeDisabled = false;
     try {
       store = await openStore(wikiDir);
@@ -223,8 +231,10 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
         currentScope = savedState.lastScope;
       }
       capturedInSession = savedState.capturedInSession ?? [];
+      lastCapturedEntryId = savedState.lastCapturedEntryId ?? null;
     } else {
       capturedInSession = [];
+      lastCapturedEntryId = null;
     }
 
     // 5. Persist initial state
@@ -232,7 +242,12 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       lastScope: currentScope,
       capturedInSession,
       sessionFile: ctx.sessionManager.getSessionFile() ?? null,
+      lastCapturedEntryId,
     } satisfies ParaSessionState);
+
+    ctx.ui.setStatus("pi-para", "wiki: ready");
+    // Clear status after a moment so it doesn't persist forever
+    setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
   });
 
   // -- session_tree: reconstruct state after tree navigation -----------------
@@ -247,9 +262,11 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
         currentScope = await detectScope(ctx.cwd);
       }
       capturedInSession = savedState.capturedInSession ?? [];
+      lastCapturedEntryId = savedState.lastCapturedEntryId ?? null;
     } else {
       currentScope = await detectScope(ctx.cwd);
       capturedInSession = [];
+      lastCapturedEntryId = null;
     }
     markContextDirty();
   });
@@ -257,22 +274,36 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   // -- session_shutdown: auto-capture, embed, close store --------------------
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    const shutdownStart = Date.now();
+
     // 1. Auto-capture if enabled
     if (config.autoCapture && store && currentScope) {
       const model = ctx.model;
       if (!model) {
         console.error("[pi-para] auto-capture skipped: no model available at shutdown");
       } else {
+        ctx.ui.setStatus("pi-para", "wiki: capturing session knowledge...");
         const sessionFile = ctx.sessionManager.getSessionFile() ?? "unknown";
         const branch = ctx.sessionManager.getBranch();
+
+        // Only capture messages AFTER the last captured entry.
+        // This avoids re-analyzing the entire conversation on resume+quit.
+        let pastCutoff = !lastCapturedEntryId; // if no prior capture, take everything
         const messages: AgentMessage[] = [];
+        let lastEntryId: string | null = null;
         for (const entry of branch) {
-          if (entry.type === "message") {
+          if (!pastCutoff && entry.id === lastCapturedEntryId) {
+            pastCutoff = true;
+            continue;
+          }
+          if (pastCutoff && entry.type === "message") {
             messages.push(entry.message as AgentMessage);
           }
+          lastEntryId = entry.id;
         }
 
         if (messages.length > 0) {
+          const captureStart = Date.now();
           try {
             const result = await autoCapture(
               wikiDir,
@@ -284,21 +315,35 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
               ctx.modelRegistry,
               config.autoCaptureTimeoutMs,
             );
+            const captureMs = Date.now() - captureStart;
             if (result.skipped) {
-              console.error(`[pi-para] auto-capture skipped: ${result.reason ?? "trivial session"}`);
+              console.error(`[pi-para] auto-capture skipped (${captureMs}ms): ${result.reason ?? "trivial session"}`);
             } else {
-              console.error(`[pi-para] auto-capture: ${result.pagesCreated.length} created, ${result.pagesUpdated.length} updated`);
+              console.error(`[pi-para] auto-capture (${captureMs}ms): ${result.pagesCreated.length} created, ${result.pagesUpdated.length} updated`);
+            }
+            // Mark the last entry as captured so resume+quit doesn't re-process
+            if (lastEntryId) {
+              lastCapturedEntryId = lastEntryId;
+              pi.appendEntry(ENTRY_TYPE, {
+                lastScope: currentScope!,
+                capturedInSession: [...capturedInSession, ...result.pagesCreated.map(p => p.slug)],
+                sessionFile,
+                lastCapturedEntryId,
+              } satisfies ParaSessionState);
             }
           } catch (err) {
-            // Auto-capture failures are non-fatal — session file still exists
-            // for manual capture later via /wiki-capture
-            console.error(`[pi-para] auto-capture failed: ${err instanceof Error ? err.message : String(err)}`);
+            const captureMs = Date.now() - captureStart;
+            console.error(`[pi-para] auto-capture failed (${captureMs}ms): ${err instanceof Error ? err.message : String(err)}`);
           }
+        } else if (lastCapturedEntryId) {
+          console.error("[pi-para] auto-capture skipped: no new messages since last capture");
         }
       }
     }
 
     // 2. Run final embed (generates vector embeddings for any new/changed pages)
+    ctx.ui.setStatus("pi-para", "wiki: embedding...");
+    const embedStart = Date.now();
     if (store) {
       try {
         await embedIfNeeded(store);
@@ -306,8 +351,10 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
         // Embedding failure is non-fatal
       }
     }
+    console.error(`[pi-para] embed: ${Date.now() - embedStart}ms`);
 
     // 3. Close the store
+    ctx.ui.setStatus("pi-para", "wiki: closing...");
     if (store) {
       try {
         await closeStore(store);
@@ -316,5 +363,8 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       }
       store = null;
     }
+
+    ctx.ui.setStatus("pi-para", undefined);
+    console.error(`[pi-para] shutdown total: ${Date.now() - shutdownStart}ms`);
   });
 }
