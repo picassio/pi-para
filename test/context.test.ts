@@ -202,7 +202,7 @@ describe("buildContext", () => {
     });
 
     // Should not exceed budget (chars / 4 estimate)
-    expect(result.length).toBeLessThanOrEqual(200 * 4 + 100); // small buffer for tags
+    expect(result.length).toBeLessThanOrEqual(200 * 4 + 300); // buffer for tags + wiki reminder
   });
 
   it("falls back to titles only when summaries exceed budget", async () => {

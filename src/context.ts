@@ -190,6 +190,12 @@ export async function buildContext(
     return "";
   }
 
+  // Reminder to use wiki tools proactively — this is injected into every turn
+  // so the LLM doesn't forget between tool calls.
+  parts.push(
+    "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked."
+  );
+
   return header + "\n" + parts.join("\n\n") + "\n" + footer;
 }
 

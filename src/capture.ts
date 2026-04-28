@@ -265,8 +265,12 @@ export async function autoCapture(
     };
   }
 
-  // Serialize the session conversation to text
-  const serialized = serializeSessionForWiki(messages);
+  // Serialize the session conversation to text.
+  // For very long sessions (post-compaction state can still be large),
+  // cap the serialized output. Compaction summaries at the start contain
+  // distilled earlier work; recent messages at the tail contain the latest.
+  const MAX_CAPTURE_CHARS = 80_000; // ~20k tokens
+  let serialized = serializeSessionForWiki(messages);
 
   if (!serialized.trim()) {
     return {
@@ -275,6 +279,15 @@ export async function autoCapture(
       skipped: true,
       reason: "empty session",
     };
+  }
+
+  if (serialized.length > MAX_CAPTURE_CHARS) {
+    // Keep head (compaction summaries) + tail (recent work)
+    const headSize = Math.floor(MAX_CAPTURE_CHARS * 0.3);
+    const tailSize = MAX_CAPTURE_CHARS - headSize;
+    serialized = serialized.slice(0, headSize)
+      + "\n\n[... middle of session omitted ...]\n\n"
+      + serialized.slice(-tailSize);
   }
 
   // Build the capture prompt with session content
