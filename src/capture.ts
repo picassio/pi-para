@@ -280,10 +280,16 @@ export async function autoCapture(
     };
   }
 
-  // If serialized is too long, keep only the tail (most recent work)
+  // If serialized is too long even after collecting only messages, the session
+  // is too massive for auto-capture to handle well. Skip it — rely on
+  // mid-session wiki_write and /wiki-capture for knowledge persistence.
   if (serialized.length > MAX_CAPTURE_CHARS) {
-    serialized = "[... earlier conversation omitted — see existing wiki pages for prior context ...]\n\n"
-      + serialized.slice(-MAX_CAPTURE_CHARS);
+    return {
+      pagesCreated: [],
+      pagesUpdated: [],
+      skipped: true,
+      reason: `session too large for auto-capture (${Math.round(serialized.length / 1000)}K chars). Use /wiki-capture or wiki_write during the session instead.`,
+    };
   }
 
   // Build context from already-captured wiki pages — these ARE the
