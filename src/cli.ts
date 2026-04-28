@@ -28,7 +28,22 @@ async function createModel(modelArg?: string) {
   const { readFileSync } = await import("node:fs");
   const { getModel, getProviders, getEnvApiKey } = await import("@mariozechner/pi-ai");
 
-  // 1. Try CLI --model arg: "provider/model-id" (e.g. "anthropic/claude-sonnet-4")
+  // 0. Try config.json daemonModel
+  if (!modelArg) {
+    try {
+      const configPath = join(homedir(), ".pi", "wiki", "config.json");
+      const raw = readFileSync(configPath, "utf-8");
+      const config = JSON.parse(raw);
+      if (config.daemonModel) {
+        modelArg = config.daemonModel;
+        console.log(`[daemon] Using model from config.json: ${modelArg}`);
+      }
+    } catch {
+      // No config or no daemonModel — continue to auto-detect
+    }
+  }
+
+  // 1. Try CLI --model arg or config daemonModel
   if (modelArg) {
     const [provider, ...rest] = modelArg.split("/");
     const modelId = rest.join("/");

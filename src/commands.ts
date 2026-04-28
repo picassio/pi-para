@@ -381,6 +381,7 @@ export function registerCommands(
           `  lintAutoFix: ${config.lintAutoFix ?? true}`,
           `  lintStaleDays: ${config.lintStaleDays ?? 90}`,
           `  searchLimit: ${config.searchLimit ?? 10}`,
+          `  daemonModel: ${config.daemonModel ?? "auto (detect from pi env keys or qmd config)"}`,
         );
       } catch {
         lines.push("Extension Config: defaults (no config.json)");

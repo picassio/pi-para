@@ -46,6 +46,9 @@ interface ParaConfig {
   lintStaleDays: number;
   searchLimit: number;
   searchIncludeArchives: boolean;
+  /** Daemon LLM: "provider/model-id" (e.g. "anthropic/claude-sonnet-4").
+   *  If not set, daemon auto-detects from pi env keys or qmd config. */
+  daemonModel: string | null;
 }
 
 function getDefaultConfig(): ParaConfig {
@@ -58,6 +61,7 @@ function getDefaultConfig(): ParaConfig {
     lintStaleDays: 90,
     searchLimit: 10,
     searchIncludeArchives: false,
+    daemonModel: null,
   };
 }
 
