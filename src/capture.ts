@@ -265,11 +265,10 @@ export async function autoCapture(
     };
   }
 
-  // Serialize the session conversation to text.
-  // For very long sessions (post-compaction state can still be large),
-  // cap the serialized output. Compaction summaries at the start contain
-  // distilled earlier work; recent messages at the tail contain the latest.
-  const MAX_CAPTURE_CHARS = 80_000; // ~20k tokens
+  // Serialize recent messages only. For long sessions, the already-captured
+  // wiki pages serve as context for earlier work — no need to re-serialize
+  // old conversation. The wiki IS the summary.
+  const MAX_CAPTURE_CHARS = 60_000; // ~15k tokens for recent messages
   let serialized = serializeSessionForWiki(messages);
 
   if (!serialized.trim()) {
@@ -281,32 +280,51 @@ export async function autoCapture(
     };
   }
 
+  // If serialized is too long, keep only the tail (most recent work)
   if (serialized.length > MAX_CAPTURE_CHARS) {
-    // Keep head (compaction summaries) + tail (recent work)
-    const headSize = Math.floor(MAX_CAPTURE_CHARS * 0.3);
-    const tailSize = MAX_CAPTURE_CHARS - headSize;
-    serialized = serialized.slice(0, headSize)
-      + "\n\n[... middle of session omitted ...]\n\n"
-      + serialized.slice(-tailSize);
+    serialized = "[... earlier conversation omitted — see existing wiki pages for prior context ...]\n\n"
+      + serialized.slice(-MAX_CAPTURE_CHARS);
   }
 
-  // Build the capture prompt with session content
+  // Build context from already-captured wiki pages — these ARE the
+  // distilled summary of earlier work, better than raw conversation.
+  let priorContext = "";
+  if (alreadyCaptured && alreadyCaptured.length > 0) {
+    const pageContents: string[] = [];
+    for (const slug of alreadyCaptured) {
+      // Try to find the page in any PARA category
+      for (const cat of ["projects", "areas", "resources", "archives"] as const) {
+        const page = await readPage(wikiDir, cat, slug);
+        if (page) {
+          pageContents.push(`### [[${slug}]] (${cat})\n${page.body.slice(0, 2000)}`);
+          break;
+        }
+      }
+    }
+    if (pageContents.length > 0) {
+      priorContext = [
+        "<already-captured-pages>",
+        "These wiki pages were already captured from earlier in this session.",
+        "Focus on NEW knowledge not yet in these pages. Update existing pages if there is significant new information.",
+        "",
+        ...pageContents,
+        "</already-captured-pages>",
+      ].join("\n");
+    }
+  }
+
+  // Build the capture prompt
   const userPrompt = generateSummary(serialized, {
     mode: "session",
     scope,
   });
 
-  // Add session file reference and already-captured pages
-  const alreadyCapturedNote = alreadyCaptured && alreadyCaptured.length > 0
-    ? `\nPages already captured from this session: ${alreadyCaptured.join(", ")}\nFocus on NEW knowledge not yet in those pages. Update existing pages if there is new information.`
-    : "";
-
   const fullPrompt = [
     userPrompt,
+    priorContext,
     "",
     `Session file: ${sessionFile}`,
     `Project scope: ${scope.name}`,
-    alreadyCapturedNote,
   ].join("\n");
 
   const agentMessages = await runCaptureAgent(

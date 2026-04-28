@@ -286,10 +286,9 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
         const sessionFile = ctx.sessionManager.getSessionFile() ?? "unknown";
         const branch = ctx.sessionManager.getBranch();
 
-        // Always serialize the full session. The capture prompt tells the LLM
-        // what was already captured (via capturedInSession) so it focuses on
-        // NEW knowledge. Incremental-only capture loses context and misses
-        // knowledge that spans multiple quit/resume cycles.
+        // Collect all messages from the branch. For long sessions,
+        // capture.ts handles truncation. Already-captured wiki pages
+        // serve as context for earlier work — the wiki IS the summary.
         const messages: AgentMessage[] = [];
         let lastEntryId: string | null = null;
         for (const entry of branch) {
