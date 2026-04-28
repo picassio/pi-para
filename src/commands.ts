@@ -366,32 +366,81 @@ export function registerCommands(
   // ---- /wiki-settings — view/edit configuration ----------------------------
 
   pi.registerCommand("wiki-settings", {
-    description: "View or edit wiki configuration",
+    description: "View wiki configuration, providers, and status",
     handler: async (_args, ctx) => {
+      const lines: string[] = [];
+
+      // 1. Extension config
       try {
         const configPath = join(wikiDir, "config.json");
         const content = await readFile(configPath, "utf-8");
         const config = JSON.parse(content);
-
-        const lines = [
-          "Wiki Settings (~/.pi/wiki/config.json):",
-          "",
-          `  wikiDir: ${config.wikiDir ?? "~/.pi/wiki"}`,
+        lines.push(
+          "Extension Config (~/.pi/wiki/config.json):",
           `  contextMaxTokens: ${config.contextMaxTokens ?? 4000}`,
-          `  contextIncludeSchema: ${config.contextIncludeSchema ?? true}`,
-          `  contextIncludeIndex: ${config.contextIncludeIndex ?? true}`,
           `  lintAutoFix: ${config.lintAutoFix ?? true}`,
           `  lintStaleDays: ${config.lintStaleDays ?? 90}`,
           `  searchLimit: ${config.searchLimit ?? 10}`,
-          `  searchIncludeArchives: ${config.searchIncludeArchives ?? false}`,
-          "",
-          "Edit: ~/.pi/wiki/config.json",
-        ];
-
-        ctx.ui.notify(lines.join("\n"), "info");
+        );
       } catch {
-        ctx.ui.notify("No config.json found. Using defaults.", "info");
+        lines.push("Extension Config: defaults (no config.json)");
       }
+
+      // 2. qmd providers
+      lines.push("");
+      try {
+        const { parse } = await import("yaml");
+        const { homedir } = await import("node:os");
+        const qmdPath = join(homedir(), ".config", "qmd", "index.yml");
+        const qmdContent = await readFile(qmdPath, "utf-8");
+        const qmd = parse(qmdContent);
+        const providers = qmd?.providers ?? {};
+        lines.push("Search Providers (~/.config/qmd/index.yml):");
+        if (providers.embed) {
+          lines.push(`  embed: ${providers.embed.model ?? "?"} at ${providers.embed.url ?? "?"}`);
+        } else {
+          lines.push("  embed: not configured (BM25 only)");
+        }
+        if (providers.chat) {
+          lines.push(`  chat: ${providers.chat.model ?? "?"} at ${providers.chat.url ?? "?"}`);
+        } else {
+          lines.push("  chat: not configured");
+        }
+        if (providers.rerank) {
+          lines.push(`  rerank: ${providers.rerank.model ?? "?"} at ${providers.rerank.url ?? "?"}`);
+        }
+      } catch {
+        lines.push("Search Providers: not configured");
+      }
+
+      // 3. Current scope
+      lines.push("");
+      const scope = getScope();
+      lines.push(`Scope: ${scope.name} (${scope.source})`);
+      lines.push(`  include: ${scope.include.join(", ")}`);
+
+      // 4. Wiki stats
+      lines.push("");
+      try {
+        const pages = await listPages(wikiDir);
+        const counts: Record<string, number> = { projects: 0, areas: 0, resources: 0, archives: 0 };
+        for (const p of pages) counts[p.category] = (counts[p.category] ?? 0) + 1;
+        lines.push(`Wiki: ${pages.length} pages (P:${counts.projects} A:${counts.areas} R:${counts.resources} Ar:${counts.archives})`);
+      } catch {
+        lines.push("Wiki: not initialized");
+      }
+
+      // 5. Daemon status
+      lines.push("");
+      try {
+        const { execSync } = await import("node:child_process");
+        const status = execSync("systemctl --user is-active pi-para-daemon 2>/dev/null", { encoding: "utf-8" }).trim();
+        lines.push(`Daemon: ${status}`);
+      } catch {
+        lines.push("Daemon: not running");
+      }
+
+      ctx.ui.notify(lines.join("\n"), "info");
     },
   });
 }
