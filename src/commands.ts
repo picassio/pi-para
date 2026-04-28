@@ -363,97 +363,143 @@ export function registerCommands(
     },
   });
 
-  // ---- /wiki-settings — view/edit configuration ----------------------------
+  // ---- /wiki-settings — interactive configuration --------------------------
 
   pi.registerCommand("wiki-settings", {
-    description: "View wiki configuration, providers, and status",
+    description: "View and edit wiki configuration",
     handler: async (_args, ctx) => {
-      const lines: string[] = [];
-
-      // 1. Extension config
-      try {
-        const configPath = join(wikiDir, "config.json");
-        const content = await readFile(configPath, "utf-8");
-        const config = JSON.parse(content);
-        lines.push(
-          "Extension Config (~/.pi/wiki/config.json):",
-          `  contextMaxTokens: ${config.contextMaxTokens ?? 4000}`,
-          `  lintAutoFix: ${config.lintAutoFix ?? true}`,
-          `  lintStaleDays: ${config.lintStaleDays ?? 90}`,
-          `  searchLimit: ${config.searchLimit ?? 10}`,
-          `  daemonModel: ${config.daemonModel ?? "auto (detect from pi env keys or qmd config)"}`,
-        );
-      } catch {
-        lines.push("Extension Config: defaults (no config.json)");
+      if (!ctx.hasUI) {
+        ctx.ui.notify("/wiki-settings requires interactive mode", "error");
+        return;
       }
 
-      // 2. qmd status + providers
-      lines.push("");
-      try {
-        const { execSync } = await import("node:child_process");
-        const qmdVersion = execSync("qmd --version 2>/dev/null", { encoding: "utf-8" }).trim();
-        lines.push(`Search Engine: qmd ${qmdVersion}`);
-      } catch {
-        lines.push("Search Engine: qmd not installed (BM25 only)");
-        lines.push("  Install: npm install -g @picassio/qmd");
-      }
+      const { writeFile: writeFileAsync } = await import("node:fs/promises");
+      const { parse, stringify } = await import("yaml");
+      const { homedir } = await import("node:os");
+      const { execSync } = await import("node:child_process");
 
+      // Load current config
+      const configPath = join(wikiDir, "config.json");
+      let config: Record<string, unknown> = {};
       try {
-        const { parse } = await import("yaml");
-        const { homedir } = await import("node:os");
-        const qmdPath = join(homedir(), ".config", "qmd", "index.yml");
-        const qmdContent = await readFile(qmdPath, "utf-8");
-        const qmd = parse(qmdContent);
-        const providers = qmd?.providers ?? {};
-        lines.push("Search Providers (~/.config/qmd/index.yml):");
-        if (providers.embed) {
-          lines.push(`  embed: ${providers.embed.model ?? "?"} at ${providers.embed.url ?? "?"}`);
-        } else {
-          lines.push("  embed: not configured");
+        config = JSON.parse(await readFile(configPath, "utf-8"));
+      } catch { /* defaults */ }
+
+      // Load qmd config
+      const qmdPath = join(homedir(), ".config", "qmd", "index.yml");
+      let qmdConfig: Record<string, unknown> = {};
+      try {
+        qmdConfig = parse(await readFile(qmdPath, "utf-8")) ?? {};
+      } catch { /* no qmd config */ }
+      const providers = (qmdConfig.providers ?? {}) as Record<string, Record<string, string>>;
+
+      // Check statuses
+      let qmdVersion = "";
+      try { qmdVersion = execSync("qmd --version 2>/dev/null", { encoding: "utf-8" }).trim(); } catch {}
+      let daemonStatus = "not running";
+      try { daemonStatus = execSync("systemctl --user is-active pi-para-daemon 2>/dev/null", { encoding: "utf-8" }).trim(); } catch {}
+
+      // Main menu loop
+      while (true) {
+        const scope = getScope();
+        const pageCount = (await listPages(wikiDir).catch(() => [])).length;
+
+        const choice = await ctx.ui.select("Wiki Settings", [
+          `[Context] Max tokens: ${config.contextMaxTokens ?? 4000}`,
+          `[Search]  Limit: ${config.searchLimit ?? 10}`,
+          `[Lint]    Auto-fix: ${config.lintAutoFix ?? true}, Stale days: ${config.lintStaleDays ?? 90}`,
+          `[Daemon]  Model: ${config.daemonModel ?? "auto"}`,
+          `[Embed]   ${providers.embed?.model ?? "not configured"} ${providers.embed?.url ? "at " + providers.embed.url : ""}`,
+          `[Chat]    ${providers.chat?.model ?? "not configured"} ${providers.chat?.url ? "at " + providers.chat.url : ""}`,
+          `[Rerank]  ${providers.rerank?.model ?? "not configured"} ${providers.rerank?.url ? "at " + providers.rerank.url : ""}`,
+          `---`,
+          `[Status]  Scope: ${scope.name} | Pages: ${pageCount} | qmd: ${qmdVersion || "not installed"} | Daemon: ${daemonStatus}`,
+        ]);
+
+        if (!choice) break;
+
+        if (choice.startsWith("[Context]")) {
+          const val = await ctx.ui.input("Context max tokens:", String(config.contextMaxTokens ?? 4000));
+          if (val) {
+            config.contextMaxTokens = parseInt(val) || 4000;
+            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+            ctx.ui.notify(`Set contextMaxTokens = ${config.contextMaxTokens}`, "info");
+          }
+        } else if (choice.startsWith("[Search]")) {
+          const val = await ctx.ui.input("Search result limit:", String(config.searchLimit ?? 10));
+          if (val) {
+            config.searchLimit = parseInt(val) || 10;
+            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+            ctx.ui.notify(`Set searchLimit = ${config.searchLimit}`, "info");
+          }
+        } else if (choice.startsWith("[Lint]")) {
+          const sub = await ctx.ui.select("Lint Settings", [
+            `Auto-fix: ${config.lintAutoFix ?? true}`,
+            `Stale days: ${config.lintStaleDays ?? 90}`,
+          ]);
+          if (sub?.startsWith("Auto-fix")) {
+            config.lintAutoFix = !(config.lintAutoFix ?? true);
+            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+            ctx.ui.notify(`Set lintAutoFix = ${config.lintAutoFix}`, "info");
+          } else if (sub?.startsWith("Stale")) {
+            const val = await ctx.ui.input("Stale days threshold:", String(config.lintStaleDays ?? 90));
+            if (val) {
+              config.lintStaleDays = parseInt(val) || 90;
+              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+              ctx.ui.notify(`Set lintStaleDays = ${config.lintStaleDays}`, "info");
+            }
+          }
+        } else if (choice.startsWith("[Daemon]")) {
+          const val = await ctx.ui.input(
+            "Daemon model (provider/model-id, or empty for auto):",
+            config.daemonModel ? String(config.daemonModel) : "",
+          );
+          config.daemonModel = val?.trim() || null;
+          await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+          ctx.ui.notify(`Set daemonModel = ${config.daemonModel ?? "auto"}`, "info");
+        } else if (choice.startsWith("[Embed]") || choice.startsWith("[Chat]") || choice.startsWith("[Rerank]")) {
+          const providerType = choice.startsWith("[Embed]") ? "embed" : choice.startsWith("[Chat]") ? "chat" : "rerank";
+          const current = providers[providerType] ?? {};
+
+          const sub = await ctx.ui.select(`${providerType} provider`, [
+            `URL: ${current.url ?? "not set"}`,
+            `Key: ${current.key ? current.key.slice(0, 8) + "..." : "not set"}`,
+            `Model: ${current.model ?? "not set"}`,
+            ...(providerType === "embed" ? [`Dims: ${current.dims ?? "auto"}`] : []),
+            ...(providerType === "chat" ? [`API format: ${current.api ?? "openai"}`] : []),
+            `Remove this provider`,
+          ]);
+
+          if (sub?.startsWith("URL")) {
+            const val = await ctx.ui.input(`${providerType} URL:`, current.url ?? "");
+            if (val) { current.url = val; providers[providerType] = current; }
+          } else if (sub?.startsWith("Key")) {
+            const val = await ctx.ui.input(`${providerType} API key:`, "");
+            if (val) { current.key = val; providers[providerType] = current; }
+          } else if (sub?.startsWith("Model")) {
+            const val = await ctx.ui.input(`${providerType} model:`, current.model ?? "");
+            if (val) { current.model = val; providers[providerType] = current; }
+          } else if (sub?.startsWith("Dims")) {
+            const val = await ctx.ui.input("Embedding dimensions:", current.dims ?? "");
+            if (val) { current.dims = val; providers[providerType] = current; }
+          } else if (sub?.startsWith("API format")) {
+            const fmt = await ctx.ui.select("API format", ["openai", "anthropic"]);
+            if (fmt) { current.api = fmt; providers[providerType] = current; }
+          } else if (sub?.startsWith("Remove")) {
+            delete providers[providerType];
+          }
+
+          // Save qmd config
+          qmdConfig.providers = providers;
+          const { mkdirSync } = await import("node:fs");
+          mkdirSync(join(homedir(), ".config", "qmd"), { recursive: true });
+          await writeFileAsync(qmdPath, stringify(qmdConfig));
+          ctx.ui.notify(`Updated ${qmdPath}`, "info");
+        } else if (choice.startsWith("---") || choice.startsWith("[Status]")) {
+          // Status row — just show, don't edit
+          continue;
         }
-        if (providers.chat) {
-          lines.push(`  chat: ${providers.chat.model ?? "?"} at ${providers.chat.url ?? "?"}`);
-        } else {
-          lines.push("  chat: not configured");
-        }
-        if (providers.rerank) {
-          lines.push(`  rerank: ${providers.rerank.model ?? "?"} at ${providers.rerank.url ?? "?"}`);
-        }
-        if (!providers.embed && !providers.chat) {
-          lines.push("  (wiki search works with BM25, add providers for hybrid search)");
-        }
-      } catch {
-        lines.push("Search Providers: ~/.config/qmd/index.yml not found");
       }
-
-      // 3. Current scope
-      lines.push("");
-      const scope = getScope();
-      lines.push(`Scope: ${scope.name} (${scope.source})`);
-      lines.push(`  include: ${scope.include.join(", ")}`);
-
-      // 4. Wiki stats
-      lines.push("");
-      try {
-        const pages = await listPages(wikiDir);
-        const counts: Record<string, number> = { projects: 0, areas: 0, resources: 0, archives: 0 };
-        for (const p of pages) counts[p.category] = (counts[p.category] ?? 0) + 1;
-        lines.push(`Wiki: ${pages.length} pages (P:${counts.projects} A:${counts.areas} R:${counts.resources} Ar:${counts.archives})`);
-      } catch {
-        lines.push("Wiki: not initialized");
-      }
-
-      // 5. Daemon status
-      lines.push("");
-      try {
-        const { execSync } = await import("node:child_process");
-        const status = execSync("systemctl --user is-active pi-para-daemon 2>/dev/null", { encoding: "utf-8" }).trim();
-        lines.push(`Daemon: ${status}`);
-      } catch {
-        lines.push("Daemon: not running");
-      }
-
-      ctx.ui.notify(lines.join("\n"), "info");
     },
   });
 }
