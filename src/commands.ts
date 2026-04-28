@@ -2,7 +2,8 @@
  * Slash command registrations for user interaction.
  *
  * Commands: /wiki, /wiki-ingest, /wiki-lint, /wiki-capture,
- *           /wiki-scope, /wiki-search, /wiki-summarize
+ *           /wiki-scope, /wiki-search, /wiki-summarize,
+ *           /wiki-daemon, /wiki-settings
  */
 
 import { readFile } from "node:fs/promises";
@@ -295,6 +296,102 @@ export function registerCommands(
 
       await ctx.waitForIdle();
       pi.sendUserMessage(`Summarize the wiki: target="${target}". Use wiki_summarize tool with target="${target}".`);
+    },
+  });
+
+  // ---- /wiki-daemon — daemon management ------------------------------------
+
+  pi.registerCommand("wiki-daemon", {
+    description: "Manage the background knowledge capture daemon",
+    getArgumentCompletions: (prefix) => {
+      const cmds = ["start", "stop", "status", "process-recent", "retry-failed", "history"];
+      const filtered = cmds.filter((c) => c.startsWith(prefix));
+      return filtered.length > 0 ? filtered.map((c) => ({ value: c, label: c })) : null;
+    },
+    handler: async (args, ctx) => {
+      const subcmd = args.trim().split(/\s+/)[0] || "status";
+
+      try {
+        const { execSync } = await import("node:child_process");
+        const daemonBin = join(wikiDir, "..", "..", "projects", "pi-para", "src", "cli.ts");
+        const npxTsx = "npx tsx";
+
+        switch (subcmd) {
+          case "start": {
+            const { spawn } = await import("node:child_process");
+            const child = spawn("npx", ["tsx", daemonBin, "start"], {
+              cwd: join(wikiDir, "..", "..", "projects", "pi-para"),
+              detached: true,
+              stdio: "ignore",
+            });
+            child.unref();
+            ctx.ui.notify(`Daemon started (PID ${child.pid})`, "info");
+            break;
+          }
+          case "stop": {
+            const output = execSync(`${npxTsx} ${daemonBin} stop 2>&1`, { encoding: "utf-8", timeout: 10000 });
+            ctx.ui.notify(output.trim(), "info");
+            break;
+          }
+          case "status": {
+            const output = execSync(`${npxTsx} ${daemonBin} status 2>&1`, { encoding: "utf-8", timeout: 10000 });
+            ctx.ui.notify(output.trim(), "info");
+            break;
+          }
+          case "process-recent": {
+            ctx.ui.notify("Processing recent sessions...", "info");
+            const output = execSync(`${npxTsx} ${daemonBin} process-recent 2>&1`, { encoding: "utf-8", timeout: 300000 });
+            ctx.ui.notify(output.trim(), "info");
+            break;
+          }
+          case "retry-failed": {
+            const output = execSync(`${npxTsx} ${daemonBin} retry-failed 2>&1`, { encoding: "utf-8", timeout: 300000 });
+            ctx.ui.notify(output.trim(), "info");
+            break;
+          }
+          case "history": {
+            const output = execSync(`${npxTsx} ${daemonBin} history 2>&1`, { encoding: "utf-8", timeout: 10000 });
+            ctx.ui.notify(output.trim(), "info");
+            break;
+          }
+          default:
+            ctx.ui.notify(`Unknown daemon command: ${subcmd}. Use: start, stop, status, process-recent, retry-failed, history`, "error");
+        }
+      } catch (err) {
+        ctx.ui.notify(`Daemon command failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+      }
+    },
+  });
+
+  // ---- /wiki-settings — view/edit configuration ----------------------------
+
+  pi.registerCommand("wiki-settings", {
+    description: "View or edit wiki configuration",
+    handler: async (_args, ctx) => {
+      try {
+        const configPath = join(wikiDir, "config.json");
+        const content = await readFile(configPath, "utf-8");
+        const config = JSON.parse(content);
+
+        const lines = [
+          "Wiki Settings (~/.pi/wiki/config.json):",
+          "",
+          `  wikiDir: ${config.wikiDir ?? "~/.pi/wiki"}`,
+          `  contextMaxTokens: ${config.contextMaxTokens ?? 4000}`,
+          `  contextIncludeSchema: ${config.contextIncludeSchema ?? true}`,
+          `  contextIncludeIndex: ${config.contextIncludeIndex ?? true}`,
+          `  lintAutoFix: ${config.lintAutoFix ?? true}`,
+          `  lintStaleDays: ${config.lintStaleDays ?? 90}`,
+          `  searchLimit: ${config.searchLimit ?? 10}`,
+          `  searchIncludeArchives: ${config.searchIncludeArchives ?? false}`,
+          "",
+          "Edit: ~/.pi/wiki/config.json",
+        ];
+
+        ctx.ui.notify(lines.join("\n"), "info");
+      } catch {
+        ctx.ui.notify("No config.json found. Using defaults.", "info");
+      }
     },
   });
 }

@@ -404,11 +404,11 @@ describe("commands", () => {
   });
 
   describe("registerCommands", () => {
-    it("should register all 7 commands", () => {
+    it("should register all 9 commands", () => {
       const { pi, commands } = createMockPi();
       registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
 
-      expect(commands.size).toBe(7);
+      expect(commands.size).toBe(9);
       expect(commands.has("wiki")).toBe(true);
       expect(commands.has("wiki-ingest")).toBe(true);
       expect(commands.has("wiki-lint")).toBe(true);
