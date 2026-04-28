@@ -10,7 +10,7 @@
 
 import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { QMDStore } from "@picassio/qmd";
@@ -23,6 +23,8 @@ import { registerTools } from "./tools.js";
 import { setupContextInjection, markContextDirty } from "./context.js";
 import type { ContextConfig } from "./context.js";
 import { registerCommands } from "./commands.js";
+import { startServer } from "./webui/server.js";
+import type { WebWikiConfig } from "./webui/server.js";
 
 // Re-export public types for consumers
 export type { ParaCategory, WikiPage, PageFrontmatter, PageRef, LogEntry } from "./wiki.js";
@@ -97,6 +99,22 @@ async function loadConfig(): Promise<ParaConfig> {
   }
 }
 
+// -- LAN IP detection --------------------------------------------------------
+
+function getLanIp(): string | null {
+  const interfaces = networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    const addrs = interfaces[name];
+    if (!addrs) continue;
+    for (const addr of addrs) {
+      if (addr.family === "IPv4" && !addr.internal) {
+        return addr.address;
+      }
+    }
+  }
+  return null;
+}
+
 // -- Session state -----------------------------------------------------------
 
 interface ParaSessionState {
@@ -125,6 +143,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   let store: QMDStore | null = null;
   let currentScope: ProjectScope | null = null;
   let storeDisabled = false;
+  let webServer: { close: () => Promise<void>; url: string } | null = null;
 
   const getScope = (): ProjectScope => {
     if (!currentScope) {
@@ -209,8 +228,32 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       sessionFile: ctx.sessionManager.getSessionFile() ?? null,
     } satisfies ParaSessionState);
 
-    ctx.ui.setStatus("pi-para", "wiki: ready");
-    setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
+    // Start web wiki server if enabled
+    if (config.webWiki.enabled) {
+      try {
+        const webConfig: WebWikiConfig = {
+          enabled: config.webWiki.enabled,
+          host: config.webWiki.host,
+          port: config.webWiki.port,
+        };
+        webServer = startServer(wikiDir, store, webConfig);
+        const lanIp = getLanIp();
+        const lanUrl = lanIp
+          ? `http://${lanIp}:${config.webWiki.port}`
+          : webServer.url;
+        ctx.ui.setStatus("pi-para", `wiki: ${lanUrl}`);
+      } catch (err) {
+        ctx.ui.notify(
+          `Web wiki failed: ${err instanceof Error ? err.message : String(err)}`,
+          "warning",
+        );
+        ctx.ui.setStatus("pi-para", "wiki: ready");
+        setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
+      }
+    } else {
+      ctx.ui.setStatus("pi-para", "wiki: ready");
+      setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
+    }
   });
 
   // -- session_tree ----------------------------------------------------------
@@ -240,7 +283,17 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       }
     }
 
-    // 2. Close the store (instant)
+    // 2. Stop web wiki server
+    if (webServer) {
+      try {
+        await webServer.close();
+      } catch {
+        // Non-fatal
+      }
+      webServer = null;
+    }
+
+    // 3. Close the store (instant)
     if (store) {
       try {
         await closeStore(store);
