@@ -174,6 +174,7 @@ For everything else:
 1. Use wiki_query to check for existing similar pages
 2. Use wiki_write to create new pages or update existing ones (use iterative update for existing pages)
 3. Each page must include the session file path in its Sources section
+4. Do NOT pass indexContent to wiki_write - the index is auto-rebuilt from all pages on disk
 
 <session-conversation>
 `;

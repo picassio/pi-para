@@ -401,14 +401,12 @@ function createWriteExecute(
       }
     }
 
-    // Update index.md — use provided content if given, otherwise auto-rebuild.
-    // Auto-rebuild ensures the index stays in sync even when the LLM
-    // forgets to pass indexContent.
+    // Always auto-rebuild index from disk.
+    // The LLM's indexContent is unreliable — it only knows about pages
+    // in its context, so it produces partial indexes that overwrite
+    // the full one. Ignore indexContent entirely.
     let indexUpdated = false;
-    if (params.indexContent) {
-      await writeIndex(wikiDir, params.indexContent);
-      indexUpdated = true;
-    } else if (pagesWritten.length > 0) {
+    if (pagesWritten.length > 0) {
       // Auto-rebuild index from all pages on disk
       const allPages = await listPages(wikiDir);
       const sections: Record<ParaCategory, string[]> = {
@@ -917,7 +915,7 @@ export function registerTools(
         theme.fg("toolTitle", theme.bold("wiki_write ")) +
         theme.fg("muted", `${count} page(s)`);
       if (slugs) text += theme.fg("dim", ` [${slugs}]`);
-      if (args.indexContent) text += theme.fg("muted", " +index");
+      text += theme.fg("muted", " +index");  // always auto-rebuilds index
       return new Text(text, 0, 0);
     },
     renderResult(result, _options, theme) {

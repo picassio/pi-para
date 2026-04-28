@@ -188,9 +188,8 @@ describe("tools", () => {
       expect(page!.frontmatter.title).toBe("Replaced Page");
     });
 
-    it("updates index.md when indexContent provided", async () => {
+    it("auto-rebuilds index.md from all pages on disk", async () => {
       const tool = findTool(tools, "wiki_write");
-      const newIndex = "# Wiki Index\n\n## Resources\n- [[test-page]] — A test page\n";
       await tool.execute("call-1", {
         pages: [
           {
@@ -199,15 +198,16 @@ describe("tools", () => {
             title: "Test Page",
             scope: ["global"],
             tags: [],
-            body: "Content.",
+            body: "Content about testing.",
             mode: "create",
           },
         ],
-        indexContent: newIndex,
       });
 
       const index = await readIndex(wikiDir);
-      expect(index).toBe(newIndex);
+      expect(index).toContain("test-page");
+      expect(index).toContain("Test Page");
+      expect(index).toContain("## Resources");
     });
 
     it("appends to log.md when logSummary provided", async () => {
