@@ -241,6 +241,7 @@ export async function autoCapture(
   model: Model<any>,
   modelRegistry: ModelRegistry,
   timeoutMs?: number,
+  alreadyCaptured?: string[],
 ): Promise<CaptureResult> {
   // Short-circuit only truly empty sessions (greetings, single-word exchanges).
   // Even short sessions can contain valuable operational knowledge (deploy keys,
@@ -282,12 +283,17 @@ export async function autoCapture(
     scope,
   });
 
-  // Add session file reference so the agent can include it in Sources
+  // Add session file reference and already-captured pages
+  const alreadyCapturedNote = alreadyCaptured && alreadyCaptured.length > 0
+    ? `\nPages already captured from this session: ${alreadyCaptured.join(", ")}\nFocus on NEW knowledge not yet in those pages. Update existing pages if there is new information.`
+    : "";
+
   const fullPrompt = [
     userPrompt,
     "",
     `Session file: ${sessionFile}`,
     `Project scope: ${scope.name}`,
+    alreadyCapturedNote,
   ].join("\n");
 
   const agentMessages = await runCaptureAgent(

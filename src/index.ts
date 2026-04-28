@@ -286,17 +286,14 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
         const sessionFile = ctx.sessionManager.getSessionFile() ?? "unknown";
         const branch = ctx.sessionManager.getBranch();
 
-        // Only capture messages AFTER the last captured entry.
-        // This avoids re-analyzing the entire conversation on resume+quit.
-        let pastCutoff = !lastCapturedEntryId; // if no prior capture, take everything
+        // Always serialize the full session. The capture prompt tells the LLM
+        // what was already captured (via capturedInSession) so it focuses on
+        // NEW knowledge. Incremental-only capture loses context and misses
+        // knowledge that spans multiple quit/resume cycles.
         const messages: AgentMessage[] = [];
         let lastEntryId: string | null = null;
         for (const entry of branch) {
-          if (!pastCutoff && entry.id === lastCapturedEntryId) {
-            pastCutoff = true;
-            continue;
-          }
-          if (pastCutoff && entry.type === "message") {
+          if (entry.type === "message") {
             messages.push(entry.message as AgentMessage);
           }
           lastEntryId = entry.id;
@@ -314,6 +311,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
               model,
               ctx.modelRegistry,
               config.autoCaptureTimeoutMs,
+              capturedInSession,
             );
             const captureMs = Date.now() - captureStart;
             if (result.skipped) {
@@ -321,22 +319,20 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
             } else {
               console.error(`[pi-para] auto-capture (${captureMs}ms): ${result.pagesCreated.length} created, ${result.pagesUpdated.length} updated`);
             }
-            // Mark the last entry as captured so resume+quit doesn't re-process
-            if (lastEntryId) {
-              lastCapturedEntryId = lastEntryId;
+            // Track what was captured so subsequent quits can focus on NEW knowledge
+            if (!result.skipped) {
+              capturedInSession = [...capturedInSession, ...result.pagesCreated.map(p => p.slug)];
               pi.appendEntry(ENTRY_TYPE, {
                 lastScope: currentScope!,
-                capturedInSession: [...capturedInSession, ...result.pagesCreated.map(p => p.slug)],
+                capturedInSession,
                 sessionFile,
-                lastCapturedEntryId,
+                lastCapturedEntryId: null,
               } satisfies ParaSessionState);
             }
           } catch (err) {
             const captureMs = Date.now() - captureStart;
             console.error(`[pi-para] auto-capture failed (${captureMs}ms): ${err instanceof Error ? err.message : String(err)}`);
           }
-        } else if (lastCapturedEntryId) {
-          console.error("[pi-para] auto-capture skipped: no new messages since last capture");
         }
       }
     }
