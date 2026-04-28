@@ -4,53 +4,32 @@ A [pi](https://github.com/badlogic/pi-mono) extension that maintains a persisten
 
 The LLM writes and maintains the entire wiki autonomously. You provide sources and ask questions. Search powered by [@picassio/qmd](https://github.com/picassio/qmd).
 
-## Install
-
-```bash
-npm install -g @picassio/pi-para
-```
-
-Or install from source:
+## Quick Setup
 
 ```bash
 git clone https://github.com/picassio/pi-para.git
 cd pi-para
-npm install
+./setup.sh
 ```
 
-## Setup
+This installs everything: extension, qmd search engine, daemon service.
 
-### 1. Enable the extension
+## Manual Setup
 
-**Global** (all projects):
-
-```bash
-# If installed from npm
-pi install @picassio/pi-para
-
-# Or symlink from source
-ln -s /path/to/pi-para ~/.pi/agent/extensions/pi-para
-```
-
-**Project-local**:
-
-```bash
-ln -s /path/to/pi-para .pi/extensions/pi-para
-```
-
-**Quick test**:
-
-```bash
-pi -e /path/to/pi-para/src/index.ts
-```
-
-### 2. Install qmd (optional, for hybrid search)
+### 1. Install qmd (search engine)
 
 ```bash
 npm install -g @picassio/qmd
 ```
 
-Without qmd, the extension still works with BM25 keyword search. With qmd providers configured, you get hybrid BM25 + vector + rerank search.
+### 2. Install extension
+
+```bash
+cd pi-para
+npm install
+mkdir -p ~/.pi/agent/extensions
+ln -sf $(pwd) ~/.pi/agent/extensions/pi-para
+```
 
 ### 3. Configure search providers (optional)
 
