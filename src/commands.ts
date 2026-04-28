@@ -9,7 +9,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { QMDStore } from "@picassio/qmd";
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 import type { ProjectScope } from "./scope.js";
 import type { LintReport } from "./lint.js";
@@ -17,7 +17,6 @@ import { lintWiki } from "./lint.js";
 import { listPages, PARA_CATEGORIES } from "./wiki.js";
 import type { ParaCategory } from "./wiki.js";
 import { searchWiki } from "./store.js";
-import { explicitCapture } from "./capture.js";
 
 // -- Helpers -----------------------------------------------------------------
 
@@ -52,18 +51,6 @@ async function readLastLogEntries(
   }
 
   return entries;
-}
-
-/** Extract messages from session manager branch for capture. */
-function extractSessionMessages(ctx: ExtensionCommandContext): unknown[] {
-  const branch = ctx.sessionManager.getBranch();
-  const messages: unknown[] = [];
-  for (const entry of branch) {
-    if (entry.type === "message") {
-      messages.push(entry.message);
-    }
-  }
-  return messages;
 }
 
 /** Format lint report for display via notify. */
@@ -110,7 +97,6 @@ export function registerCommands(
   store: QMDStore,
   getScope: () => ProjectScope,
   setScope: (scope: ProjectScope) => void,
-  getCapturedInSession?: () => string[],
 ): void {
   // ---- /wiki — status overview ---------------------------------------------
 
@@ -199,60 +185,21 @@ export function registerCommands(
     },
   });
 
-  // ---- /wiki-capture — explicit session capture ----------------------------
+  // ---- /wiki-capture — capture via session LLM ----------------------------
 
   pi.registerCommand("wiki-capture", {
     description: "Capture knowledge from the current session into the wiki",
     handler: async (args, ctx) => {
-      const topic = args.trim() || undefined;
-      const model = ctx.model;
-      if (!model) {
-        ctx.ui.notify("No model selected. Cannot capture.", "error");
-        return;
-      }
-
-      const messages = extractSessionMessages(ctx);
-      if (messages.length === 0) {
-        ctx.ui.notify("No messages in session to capture.", "info");
-        return;
-      }
-
-      ctx.ui.notify("Capturing session knowledge...", "info");
-
-      const scope = getScope();
-      const sessionFile = ctx.sessionManager.getSessionFile() ?? "unknown";
-
-      try {
-        const result = await explicitCapture(
-          wikiDir,
-          store,
-          topic,
-          messages as Parameters<typeof explicitCapture>[3],
-          scope,
-          sessionFile,
-          model,
-          ctx.modelRegistry,
-          getCapturedInSession?.(),
+      const topic = args.trim();
+      await ctx.waitForIdle();
+      if (topic) {
+        pi.sendUserMessage(
+          `Save this to the wiki using wiki_write: ${topic}`,
         );
-
-        if (result.skipped) {
-          ctx.ui.notify(`Capture skipped: ${result.reason ?? "nothing to capture"}`, "info");
-          return;
-        }
-
-        const parts: string[] = [];
-        if (result.pagesCreated.length > 0) {
-          parts.push(`Created: ${result.pagesCreated.map((p) => `${p.category}/${p.slug}`).join(", ")}`);
-        }
-        if (result.pagesUpdated.length > 0) {
-          parts.push(`Updated: ${result.pagesUpdated.map((p) => `${p.category}/${p.slug}`).join(", ")}`);
-        }
-        if (parts.length === 0) {
-          parts.push("No pages created or updated.");
-        }
-        ctx.ui.notify(parts.join("\n"), "info");
-      } catch (err) {
-        ctx.ui.notify(`Capture failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+      } else {
+        pi.sendUserMessage(
+          "Review the recent conversation and save any valuable knowledge to the wiki using wiki_write. Look for architecture decisions, debugging solutions, server details, build procedures, tool configs, and operational knowledge.",
+        );
       }
     },
   });

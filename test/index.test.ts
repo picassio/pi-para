@@ -150,10 +150,7 @@ describe("piPara extension entry point", () => {
     // Config should be created by the async factory (loadConfig)
     const configContent = await readFile(join(wikiDir, "config.json"), "utf-8");
     const config = JSON.parse(configContent);
-    expect(config.autoCapture).toBe(true);
-    expect(config.contextMaxTokens).toBe(4000);
-    expect(config.autoCaptureTimeoutMs).toBe(60_000);
-  });
+    expect(config.contextMaxTokens).toBe(4000);  });
 
   it("session_start creates wiki directory structure", async () => {
     const pi = createMockPi();
@@ -181,7 +178,7 @@ describe("piPara extension entry point", () => {
     await mkdir(wikiDir, { recursive: true });
     await writeFile(
       join(wikiDir, "config.json"),
-      JSON.stringify({ contextMaxTokens: 8000, autoCapture: false }),
+      JSON.stringify({ contextMaxTokens: 8000 }),
       "utf-8",
     );
 
@@ -212,12 +209,12 @@ describe("piPara extension entry point", () => {
 
     const state = stateEntries[stateEntries.length - 1].data as {
       lastScope: ProjectScope;
-      capturedInSession: string[];
+      
       sessionFile: string | null;
     };
     expect(state.lastScope).toBeDefined();
     expect(state.lastScope.name).toBeTruthy();
-    expect(state.capturedInSession).toEqual([]);
+    
     expect(state.sessionFile).toBe("/tmp/test-session.jsonl");
   });
 
@@ -239,7 +236,6 @@ describe("piPara extension entry point", () => {
           customType: "pi-para-state",
           data: {
             lastScope: savedScope,
-            capturedInSession: ["resources/old-page"],
             sessionFile: "/old-session.jsonl",
           },
         },
@@ -252,9 +248,9 @@ describe("piPara extension entry point", () => {
 
     // The scope should be restored from saved state (since source is "config")
     const lastEntry = pi.entries[pi.entries.length - 1];
-    const state = lastEntry.data as { lastScope: ProjectScope; capturedInSession: string[] };
+    const state = lastEntry.data as { lastScope: ProjectScope; sessionFile: string | null };
     expect(state.lastScope.name).toBe("overridden-project");
-    expect(state.capturedInSession).toEqual(["resources/old-page"]);
+    
   });
 
   it("session_start does not restore non-config scope overrides", async () => {
@@ -276,7 +272,6 @@ describe("piPara extension entry point", () => {
           customType: "pi-para-state",
           data: {
             lastScope: savedScope,
-            capturedInSession: [],
             sessionFile: "/session.jsonl",
           },
         },
@@ -319,7 +314,6 @@ describe("piPara extension entry point", () => {
           customType: "pi-para-state",
           data: {
             lastScope: savedScope,
-            capturedInSession: ["areas/some-area"],
             sessionFile: "/session.jsonl",
           },
         },
@@ -452,16 +446,15 @@ describe("piPara extension entry point", () => {
     expect(call).toBeDefined();
     const data = call![1] as ParaSessionStateShape;
     expect(data).toHaveProperty("lastScope");
-    expect(data).toHaveProperty("capturedInSession");
     expect(data).toHaveProperty("sessionFile");
     expect(typeof data.lastScope.name).toBe("string");
-    expect(Array.isArray(data.capturedInSession)).toBe(true);
+    
   });
 });
 
 // Type helper for test assertions
 interface ParaSessionStateShape {
   lastScope: ProjectScope;
-  capturedInSession: string[];
+  
   sessionFile: string | null;
 }
