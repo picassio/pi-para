@@ -1,7 +1,7 @@
 {
   "name": "@picassio/pi-para",
   "version": "0.1.2",
-  "description": "PARA Knowledge Base Extension for pi — persistent, LLM-curated personal wiki",
+  "description": "PARA Knowledge Base Extension for pi \u2014 persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -54,13 +54,18 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "files": [
     "dist",
     "src",
     "CHANGELOG.md",
-    "README.md"
+    "README.md",
+    "skills",
+    "SETUP.md"
   ],
   "scripts": {
     "clean": "rm -rf dist",
