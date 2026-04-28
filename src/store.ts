@@ -118,12 +118,22 @@ export async function openStore(wikiDir: string): Promise<QMDStore> {
 
   // Schedule embedding in background (non-blocking).
   // BM25 search works immediately; hybrid search improves once embed completes.
+  // Suppress console.error from qmd's internal embed failures.
+  const origError = console.error;
   const embedPromise = store.embed().then(() => {
     pendingEmbeds.delete(store);
   }).catch(() => {
     // Embedding failures are non-fatal — hybrid search degrades to BM25
     pendingEmbeds.delete(store);
+  }).finally(() => {
+    console.error = origError;
   });
+  // Temporarily suppress embed error noise during background embed
+  console.error = (...args: unknown[]) => {
+    const msg = String(args[0] ?? "");
+    if (msg.includes("embed error") || msg.includes("fetch failed")) return;
+    origError(...args);
+  };
   pendingEmbeds.set(store, embedPromise);
 
   return store;
