@@ -387,8 +387,17 @@ export function registerCommands(
         lines.push("Extension Config: defaults (no config.json)");
       }
 
-      // 2. qmd providers
+      // 2. qmd status + providers
       lines.push("");
+      try {
+        const { execSync } = await import("node:child_process");
+        const qmdVersion = execSync("qmd --version 2>/dev/null", { encoding: "utf-8" }).trim();
+        lines.push(`Search Engine: qmd ${qmdVersion}`);
+      } catch {
+        lines.push("Search Engine: qmd not installed (BM25 only)");
+        lines.push("  Install: npm install -g @picassio/qmd");
+      }
+
       try {
         const { parse } = await import("yaml");
         const { homedir } = await import("node:os");
@@ -400,7 +409,7 @@ export function registerCommands(
         if (providers.embed) {
           lines.push(`  embed: ${providers.embed.model ?? "?"} at ${providers.embed.url ?? "?"}`);
         } else {
-          lines.push("  embed: not configured (BM25 only)");
+          lines.push("  embed: not configured");
         }
         if (providers.chat) {
           lines.push(`  chat: ${providers.chat.model ?? "?"} at ${providers.chat.url ?? "?"}`);
@@ -410,8 +419,11 @@ export function registerCommands(
         if (providers.rerank) {
           lines.push(`  rerank: ${providers.rerank.model ?? "?"} at ${providers.rerank.url ?? "?"}`);
         }
+        if (!providers.embed && !providers.chat) {
+          lines.push("  (wiki search works with BM25, add providers for hybrid search)");
+        }
       } catch {
-        lines.push("Search Providers: not configured");
+        lines.push("Search Providers: ~/.config/qmd/index.yml not found");
       }
 
       // 3. Current scope

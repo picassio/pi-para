@@ -7,39 +7,34 @@ The LLM writes and maintains the entire wiki autonomously. You provide sources a
 ## Install
 
 ```bash
-# Install via pi (recommended)
 pi install @picassio/pi-para
-
-# Or via npm
-npm install -g @picassio/pi-para
 ```
 
-## Quick Setup
+That's it. Start pi and the extension loads automatically. Wiki directory is created on first session.
 
-```bash
-# One-command setup: installs qmd, extension, daemon service
-npx @picassio/pi-para setup
-# Or if cloned from source:
-./setup.sh
-```
+### Optional: Enhanced search
 
-This installs everything: qmd search engine, extension, systemd daemon service.
-
-## Manual Setup
-
-### 1. Install qmd (search engine)
+Without qmd, the wiki uses BM25 keyword search. For hybrid search (BM25 + vector + rerank):
 
 ```bash
 npm install -g @picassio/qmd
 ```
 
-### 2. Install extension
+Then configure providers in `~/.config/qmd/index.yml`.
+
+### Optional: Background capture daemon
+
+The daemon processes session files in the background after you quit pi:
 
 ```bash
-pi install @picassio/pi-para
+# Start manually
+cd ~/.pi/agent/packages/npm/@picassio/pi-para && npx tsx src/cli.ts start
+
+# Or install as systemd user service (Linux)
+./setup.sh  # only needed for daemon auto-start
 ```
 
-### 3. Configure search providers (optional)
+### Configure search providers (optional)
 
 Create `~/.config/qmd/index.yml`:
 
