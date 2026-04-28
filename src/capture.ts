@@ -403,9 +403,10 @@ export async function explicitCapture(
   sessionFile: string,
   model: Model<any>,
   modelRegistry: ModelRegistry,
+  alreadyCaptured?: string[],
 ): Promise<CaptureResult> {
-  // Serialize the session conversation to text
-  const serialized = serializeSessionForWiki(messages);
+  const MAX_EXPLICIT_CHARS = 60_000;
+  let serialized = serializeSessionForWiki(messages);
 
   if (!serialized.trim()) {
     return {
@@ -416,6 +417,37 @@ export async function explicitCapture(
     };
   }
 
+  // For large sessions, keep only the recent tail
+  if (serialized.length > MAX_EXPLICIT_CHARS) {
+    serialized = "[... earlier conversation omitted ...]\n\n"
+      + serialized.slice(-MAX_EXPLICIT_CHARS);
+  }
+
+  // Build context from already-captured wiki pages
+  let priorContext = "";
+  if (alreadyCaptured && alreadyCaptured.length > 0) {
+    const pageContents: string[] = [];
+    for (const slug of alreadyCaptured) {
+      for (const cat of ["projects", "areas", "resources", "archives"] as const) {
+        const page = await readPage(wikiDir, cat, slug);
+        if (page) {
+          pageContents.push(`### [[${slug}]] (${cat})\n${page.body.slice(0, 2000)}`);
+          break;
+        }
+      }
+    }
+    if (pageContents.length > 0) {
+      priorContext = [
+        "<already-captured-pages>",
+        "These pages were already captured. Focus on NEW knowledge.",
+        "",
+        ...pageContents,
+        "</already-captured-pages>",
+        "",
+      ].join("\n");
+    }
+  }
+
   // Build the explicit capture prompt
   const topicInstruction = topic
     ? `\n\nFocus on capturing knowledge about: ${topic}`
@@ -424,6 +456,7 @@ export async function explicitCapture(
   const userPrompt = [
     EXPLICIT_CAPTURE_PROMPT,
     topicInstruction,
+    priorContext,
     "",
     `Session file: ${sessionFile}`,
     `Project scope: ${scope.name}`,

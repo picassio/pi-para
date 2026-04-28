@@ -188,7 +188,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
 
   registerTools(pi, wikiDir, storeProxy, getScope, markContextDirty);
   setupContextInjection(pi, wikiDir, storeProxy, () => currentScope, getConfig);
-  registerCommands(pi, wikiDir, storeProxy, getScope, setScope);
+  registerCommands(pi, wikiDir, storeProxy, getScope, setScope, () => capturedInSession);
 
   // -- session_start: init wiki, open store, detect scope --------------------
 

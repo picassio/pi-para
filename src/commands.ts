@@ -110,6 +110,7 @@ export function registerCommands(
   store: QMDStore,
   getScope: () => ProjectScope,
   setScope: (scope: ProjectScope) => void,
+  getCapturedInSession?: () => string[],
 ): void {
   // ---- /wiki — status overview ---------------------------------------------
 
@@ -231,6 +232,7 @@ export function registerCommands(
           sessionFile,
           model,
           ctx.modelRegistry,
+          getCapturedInSession?.(),
         );
 
         if (result.skipped) {
