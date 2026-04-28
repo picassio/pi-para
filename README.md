@@ -4,15 +4,26 @@ A [pi](https://github.com/badlogic/pi-mono) extension that maintains a persisten
 
 The LLM writes and maintains the entire wiki autonomously. You provide sources and ask questions. Search powered by [@picassio/qmd](https://github.com/picassio/qmd).
 
+## Install
+
+```bash
+# Install via pi (recommended)
+pi install @picassio/pi-para
+
+# Or via npm
+npm install -g @picassio/pi-para
+```
+
 ## Quick Setup
 
 ```bash
-git clone https://github.com/picassio/pi-para.git
-cd pi-para
+# One-command setup: installs qmd, extension, daemon service
+npx @picassio/pi-para setup
+# Or if cloned from source:
 ./setup.sh
 ```
 
-This installs everything: extension, qmd search engine, daemon service.
+This installs everything: qmd search engine, extension, systemd daemon service.
 
 ## Manual Setup
 
@@ -25,10 +36,7 @@ npm install -g @picassio/qmd
 ### 2. Install extension
 
 ```bash
-cd pi-para
-npm install
-mkdir -p ~/.pi/agent/extensions
-ln -sf $(pwd) ~/.pi/agent/extensions/pi-para
+pi install @picassio/pi-para
 ```
 
 ### 3. Configure search providers (optional)
@@ -217,6 +225,13 @@ npm install
 npm run check    # TypeScript check
 npm test         # Run tests (265 tests)
 npm run build    # Compile to dist/
+
+# Dev mode: symlink extension (changes take effect on /reload)
+mkdir -p ~/.pi/agent/extensions
+ln -sf $(pwd) ~/.pi/agent/extensions/pi-para
+
+# Run daemon locally
+npx tsx src/cli.ts start
 ```
 
 ## License

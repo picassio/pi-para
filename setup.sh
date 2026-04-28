@@ -1,6 +1,6 @@
 #!/bin/bash
 # pi-para setup script
-# Installs extension, qmd, configures providers, starts daemon
+# Installs extension via pi/npm, qmd search engine, configures providers, starts daemon
 
 set -e
 
@@ -24,32 +24,28 @@ else
   echo "  qmd installed: $(qmd --version 2>/dev/null)"
 fi
 
-# 3. Install extension dependencies
+# 3. Install pi-para extension
 echo ""
-echo "Installing pi-para dependencies..."
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
-npm install --omit=dev 2>/dev/null || npm install
-echo "  Done"
-
-# 4. Symlink extension
-echo ""
-echo "Setting up extension symlink..."
-mkdir -p ~/.pi/agent/extensions
-if [ -L ~/.pi/agent/extensions/pi-para ]; then
-  echo "  Symlink already exists"
+echo "Installing pi-para extension..."
+if command -v pi &>/dev/null; then
+  pi install @picassio/pi-para
+  echo "  Installed via pi install"
 else
-  ln -sf "$SCRIPT_DIR" ~/.pi/agent/extensions/pi-para
-  echo "  Linked: ~/.pi/agent/extensions/pi-para -> $SCRIPT_DIR"
+  npm install -g @picassio/pi-para
+  # Link into pi extensions dir
+  PARA_PATH="$(npm root -g)/@picassio/pi-para"
+  mkdir -p ~/.pi/agent/extensions
+  ln -sf "$PARA_PATH" ~/.pi/agent/extensions/pi-para
+  echo "  Installed via npm + symlinked to ~/.pi/agent/extensions/"
 fi
 
-# 5. Configure qmd providers (if not already configured)
+# 4. Configure qmd providers (if not already configured)
 echo ""
 QMD_CONFIG=~/.config/qmd/index.yml
 if [ -f "$QMD_CONFIG" ]; then
   echo "qmd config exists: $QMD_CONFIG"
 else
-  echo "No qmd config found. Creating default..."
+  echo "No qmd config found. Creating template..."
   mkdir -p ~/.config/qmd
   cat > "$QMD_CONFIG" << 'YAML'
 # qmd search providers
@@ -68,30 +64,43 @@ else
 #    model: MiniMax-M2.7-highspeed
 #    api: anthropic
 YAML
-  echo "  Created: $QMD_CONFIG (edit to add API keys)"
+  echo "  Created: $QMD_CONFIG"
+  echo "  Edit this file to add API keys for hybrid search."
 fi
 
-# 6. Install systemd service (Linux only)
+# 5. Install systemd daemon service (Linux only)
 echo ""
 if command -v systemctl &>/dev/null; then
   echo "Setting up daemon service..."
   mkdir -p ~/.config/systemd/user
 
-  NODE_BIN="$(dirname "$(which node)")"
-  TSX_BIN="$SCRIPT_DIR/node_modules/.bin/tsx"
-
-  if [ ! -f "$TSX_BIN" ]; then
-    npm install -D tsx 2>/dev/null
+  # Find the installed pi-para path
+  if command -v pi &>/dev/null; then
+    PARA_DIR="$(pi info packages 2>/dev/null | grep pi-para | awk '{print $NF}' || echo "")"
   fi
+  if [ -z "$PARA_DIR" ]; then
+    PARA_DIR="$(npm root -g)/@picassio/pi-para"
+  fi
+  if [ ! -d "$PARA_DIR" ]; then
+    echo "  Warning: Could not find pi-para install path. Daemon setup skipped."
+    echo "  Start daemon manually: npx @picassio/pi-para daemon start"
+  else
+    NODE_BIN="$(dirname "$(which node)")"
+    TSX_BIN="$PARA_DIR/node_modules/.bin/tsx"
 
-  cat > ~/.config/systemd/user/pi-para-daemon.service << EOF
+    # Ensure tsx is available
+    if [ ! -f "$TSX_BIN" ]; then
+      cd "$PARA_DIR" && npm install tsx 2>/dev/null
+    fi
+
+    cat > ~/.config/systemd/user/pi-para-daemon.service << EOF
 [Unit]
 Description=pi-para knowledge capture daemon
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=$SCRIPT_DIR
+WorkingDirectory=$PARA_DIR
 ExecStart=$TSX_BIN src/cli.ts start
 Restart=on-failure
 RestartSec=10
@@ -102,24 +111,24 @@ Environment=PATH=$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 WantedBy=default.target
 EOF
 
-  systemctl --user daemon-reload
-  systemctl --user enable pi-para-daemon
-  systemctl --user start pi-para-daemon
-  sudo loginctl enable-linger "$USER" 2>/dev/null || true
-  echo "  Daemon enabled and started"
-  systemctl --user status pi-para-daemon --no-pager 2>&1 | head -5
+    systemctl --user daemon-reload
+    systemctl --user enable pi-para-daemon
+    systemctl --user start pi-para-daemon
+    sudo loginctl enable-linger "$USER" 2>/dev/null || true
+    echo "  Daemon enabled and started"
+  fi
 else
   echo "systemd not available — start daemon manually:"
-  echo "  cd $SCRIPT_DIR && npx tsx src/cli.ts start"
+  echo "  npx @picassio/pi-para daemon start"
 fi
 
 echo ""
 echo "=== Setup complete ==="
 echo ""
-echo "Extension: ~/.pi/agent/extensions/pi-para"
 echo "Wiki dir:  ~/.pi/wiki/ (created on first pi session)"
-echo "Config:    ~/.pi/wiki/config.json"
-echo "qmd:       $QMD_CONFIG"
+echo "Config:    ~/.pi/wiki/config.json (created on first pi session)"
+echo "qmd:       ~/.config/qmd/index.yml"
 echo ""
 echo "Start pi and the extension loads automatically."
 echo "Use /wiki-settings to check configuration."
+echo "Use /wiki-daemon status to check the background capture daemon."
