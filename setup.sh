@@ -74,25 +74,12 @@ if command -v systemctl &>/dev/null; then
   echo "Setting up daemon service..."
   mkdir -p ~/.config/systemd/user
 
-  # Find the installed pi-para path
-  if command -v pi &>/dev/null; then
-    PARA_DIR="$(pi info packages 2>/dev/null | grep pi-para | awk '{print $NF}' || echo "")"
-  fi
-  if [ -z "$PARA_DIR" ]; then
-    PARA_DIR="$(npm root -g)/@picassio/pi-para"
-  fi
-  if [ ! -d "$PARA_DIR" ]; then
-    echo "  Warning: Could not find pi-para install path. Daemon setup skipped."
-    echo "  Start daemon manually: npx @picassio/pi-para daemon start"
+  # Use login shell approach — works with any node version manager
+  # (mise, nvm, fnm, volta, or system node)
+  if ! command -v node &>/dev/null; then
+    echo "  Warning: node not found in PATH. Daemon setup skipped."
+    echo "  Install Node.js first, then re-run setup."
   else
-    NODE_BIN="$(dirname "$(which node)")"
-    TSX_BIN="$PARA_DIR/node_modules/.bin/tsx"
-
-    # Ensure tsx is available
-    if [ ! -f "$TSX_BIN" ]; then
-      cd "$PARA_DIR" && npm install tsx 2>/dev/null
-    fi
-
     cat > ~/.config/systemd/user/pi-para-daemon.service << EOF
 [Unit]
 Description=pi-para knowledge capture daemon
@@ -100,12 +87,11 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=$PARA_DIR
-ExecStart=$TSX_BIN src/cli.ts start
+# Login shell inherits PATH from ~/.profile (picks up mise, nvm, fnm, volta, etc.)
+ExecStart=/bin/bash -lc 'exec npx pi-para-daemon start'
 Restart=on-failure
 RestartSec=10
 Environment=HOME=$HOME
-Environment=PATH=$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target
@@ -115,7 +101,7 @@ EOF
     systemctl --user enable pi-para-daemon
     systemctl --user start pi-para-daemon
     sudo loginctl enable-linger "$USER" 2>/dev/null || true
-    echo "  Daemon enabled and started"
+    echo "  Daemon enabled and started (node: $(which node))"
   fi
 else
   echo "systemd not available — start daemon manually:"

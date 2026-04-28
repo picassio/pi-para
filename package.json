@@ -1,6 +1,6 @@
 {
   "name": "@picassio/pi-para",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "PARA Knowledge Base Extension for pi \u2014 persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
@@ -46,6 +46,22 @@
       "types": "./dist/summarize.d.ts",
       "import": "./dist/summarize.js"
     },
+    "./link-utils": {
+      "types": "./dist/link-utils.d.ts",
+      "import": "./dist/link-utils.js"
+    },
+    "./tag-registry": {
+      "types": "./dist/tag-registry.d.ts",
+      "import": "./dist/tag-registry.js"
+    },
+    "./link-discovery": {
+      "types": "./dist/link-discovery.d.ts",
+      "import": "./dist/link-discovery.js"
+    },
+    "./redact": {
+      "types": "./dist/redact.d.ts",
+      "import": "./dist/redact.js"
+    },
     "./context": {
       "types": "./dist/context.d.ts",
       "import": "./dist/context.js"
@@ -69,9 +85,11 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/webui/client/dist && cp src/webui/client/dist/index.html dist/webui/client/dist/index.html",
     "check": "tsc --noEmit",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "fix-links": "tsx src/scripts/bulk-link-fix.ts",
+    "fix-links:dry": "tsx src/scripts/bulk-link-fix.ts --dry-run"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",

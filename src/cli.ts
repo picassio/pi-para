@@ -50,27 +50,66 @@ async function createModel(modelArg?: string) {
     if (provider && modelId) {
       const model = getModel(provider as any, modelId as any);
       if (model) {
-        const getApiKey = async (p: string) => getEnvApiKey(p) ?? "";
+        // Resolve API key: try AuthStorage first (OAuth), then env vars
+        let authStore: any = null;
+        try {
+          const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+          authStore = AuthStorage.create();
+        } catch {}
+        const getApiKey = async (p: string) => {
+          if (authStore) {
+            const k = await authStore.getApiKey(p);
+            if (k) return k;
+          }
+          return getEnvApiKey(p) ?? "";
+        };
         console.log(`[daemon] Using pi model: ${provider}/${modelId} (context: ${model.contextWindow})`);
         return { model, getApiKey };
       }
     }
   }
 
-  // 2. Try pi's model registry — find any provider with an API key
+  // 2. Try pi's auth storage (auth.json) — supports OAuth (Anthropic, GitHub Copilot, etc.)
+  try {
+    const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+    const authStorage = AuthStorage.create();
+    const { getModels } = await import("@mariozechner/pi-ai");
+
+    // Check providers in preference order: anthropic first (best quality)
+    const preferredProviders = ["anthropic", "openai", "openrouter", "google-antigravity", "github-copilot"];
+    for (const provider of preferredProviders) {
+      if (!authStorage.hasAuth(provider)) continue;
+      const key = await authStorage.getApiKey(provider);
+      if (!key) continue;
+
+      const models = getModels(provider as any);
+      const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
+      const picked = sorted.find(m => !m.reasoning) ?? sorted[0];
+      if (picked) {
+        const getApiKey = async (p: string) => {
+          const k = await authStorage.getApiKey(p);
+          return k ?? getEnvApiKey(p) ?? "";
+        };
+        console.log(`[daemon] Using pi auth: ${provider}/${picked.id} (context: ${picked.contextWindow})`);
+        return { model: picked, getApiKey };
+      }
+    }
+  } catch {
+    // AuthStorage not available — continue to env/qmd fallback
+  }
+
+  // 3. Try env vars
   const providers = getProviders();
   for (const provider of providers) {
     const key = getEnvApiKey(provider);
     if (key) {
-      // Pick a cheap/fast model from this provider
       const { getModels } = await import("@mariozechner/pi-ai");
       const models = getModels(provider as any);
-      // Prefer non-reasoning models with large context
       const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
       const picked = sorted.find(m => !m.reasoning) ?? sorted[0];
       if (picked) {
         const getApiKey = async (p: string) => getEnvApiKey(p) ?? "";
-        console.log(`[daemon] Using pi model: ${provider}/${picked.id} (context: ${picked.contextWindow})`);
+        console.log(`[daemon] Using env key: ${provider}/${picked.id} (context: ${picked.contextWindow})`);
         return { model: picked, getApiKey };
       }
     }
@@ -116,7 +155,26 @@ async function main() {
       const modelIdx = args.indexOf("--model");
       const modelArg = modelIdx >= 0 ? args[modelIdx + 1] : undefined;
       const { model, getApiKey } = await createModel(modelArg);
-      const daemon = new Daemon({ wikiDir, model: model as any, getApiKey });
+
+      // Load web wiki config
+      let webWiki: { enabled: boolean; host: string; port: number } | undefined;
+      try {
+        const { readFileSync } = await import("node:fs");
+        const configPath = join(homedir(), ".pi", "wiki", "config.json");
+        const raw = readFileSync(configPath, "utf-8");
+        const config = JSON.parse(raw);
+        if (config.webWiki?.enabled) {
+          webWiki = {
+            enabled: true,
+            host: config.webWiki.host ?? "0.0.0.0",
+            port: config.webWiki.port ?? 10973,
+          };
+        }
+      } catch {
+        // No config or parse error — skip web wiki
+      }
+
+      const daemon = new Daemon({ wikiDir, model: model as any, getApiKey, webWiki });
 
       process.on("SIGINT", async () => {
         await daemon.stop();

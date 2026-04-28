@@ -58,9 +58,11 @@ function buildSchemaSummary(fullSchema: string): string {
     "## Wiki Conventions (summary)",
     "",
     "- Pages: markdown + YAML frontmatter (title, para, scope, tags, sources, created, updated, links)",
-    "- PARA categories: projects/ (active, goal-defined), areas/ (ongoing), resources/ (reference), archives/ (completed)",
+    "- PARA categories: **resources/** for almost everything (architecture docs, how-tos, patterns, debugging). **areas/** for ongoing responsibilities. **projects/** ONLY for actual goals with end dates. **archives/** for completed items.",
+    "- Scope: must be a kebab-case project name (e.g. `pi-para`, `qmd`). NOT topic descriptions.",
+    "- Tags: kebab-case, no spaces. Don't duplicate scope values as tags.",
     "- Slugs: lowercase, hyphens (e.g. ssl-cert-gotchas)",
-    "- Cross-references: [[slug]] wikilinks",
+    "- Cross-references: use [[slug]] wikilinks. Add a ## Connections section linking related pages.",
     "- Wiki summary format sections: Topic, Key Facts, Insights, Connections, Open Questions, Sources",
     "- Update existing pages for same concept, create new pages for distinct concepts",
     "- Tone: technical, concise, factual",
@@ -194,6 +196,9 @@ export async function buildContext(
   // so the LLM doesn't forget between tool calls.
   parts.push(
     "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked."
+  );
+  parts.push(
+    "When using wiki_write: use resources/ category for almost everything (architecture docs, debugging, patterns). scope must be a kebab-case project name. tags must be kebab-case, no spaces. Always add [[wikilinks]] in a ## Connections section. NEVER include API keys, tokens, or secrets — document WHERE they are stored, not the values."
   );
 
   return header + "\n" + parts.join("\n\n") + "\n" + footer;

@@ -23,8 +23,7 @@ import { registerTools } from "./tools.js";
 import { setupContextInjection, markContextDirty } from "./context.js";
 import type { ContextConfig } from "./context.js";
 import { registerCommands } from "./commands.js";
-import { startServer } from "./webui/server.js";
-import type { WebWikiConfig } from "./webui/server.js";
+import { createServer } from "node:http";
 
 // Re-export public types for consumers
 export type { ParaCategory, WikiPage, PageFrontmatter, PageRef, LogEntry } from "./wiki.js";
@@ -101,6 +100,23 @@ async function loadConfig(): Promise<ParaConfig> {
 
 // -- LAN IP detection --------------------------------------------------------
 
+/** Check if the daemon's web server is alive on the given port. */
+function checkWebServerAlive(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = createServer().listen(port, "127.0.0.1");
+    req.on("error", (err: NodeJS.ErrnoException) => {
+      req.close();
+      // EADDRINUSE means something is already listening — daemon is running
+      resolve(err.code === "EADDRINUSE");
+    });
+    req.on("listening", () => {
+      // Port is free — no daemon web server
+      req.close();
+      resolve(false);
+    });
+  });
+}
+
 function getLanIp(): string | null {
   const interfaces = networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -143,7 +159,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   let store: QMDStore | null = null;
   let currentScope: ProjectScope | null = null;
   let storeDisabled = false;
-  let webServer: { close: () => Promise<void>; url: string } | null = null;
+
 
   const getScope = (): ProjectScope => {
     if (!currentScope) {
@@ -228,25 +244,20 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       sessionFile: ctx.sessionManager.getSessionFile() ?? null,
     } satisfies ParaSessionState);
 
-    // Start web wiki server if enabled
+    // Check if daemon's web wiki server is running (don't start our own)
     if (config.webWiki.enabled) {
+      const port = config.webWiki.port;
       try {
-        const webConfig: WebWikiConfig = {
-          enabled: config.webWiki.enabled,
-          host: config.webWiki.host,
-          port: config.webWiki.port,
-        };
-        webServer = startServer(wikiDir, store, webConfig);
-        const lanIp = getLanIp();
-        const lanUrl = lanIp
-          ? `http://${lanIp}:${config.webWiki.port}`
-          : webServer.url;
-        ctx.ui.setStatus("pi-para", `wiki: ${lanUrl}`);
-      } catch (err) {
-        ctx.ui.notify(
-          `Web wiki failed: ${err instanceof Error ? err.message : String(err)}`,
-          "warning",
-        );
+        const alive = await checkWebServerAlive(port);
+        if (alive) {
+          const lanIp = getLanIp();
+          const url = lanIp ? `http://${lanIp}:${port}` : `http://localhost:${port}`;
+          ctx.ui.setStatus("pi-para", `wiki: ${url}`);
+        } else {
+          ctx.ui.setStatus("pi-para", "wiki: ready (start daemon for web UI)");
+          setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
+        }
+      } catch {
         ctx.ui.setStatus("pi-para", "wiki: ready");
         setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
       }
@@ -283,17 +294,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       }
     }
 
-    // 2. Stop web wiki server
-    if (webServer) {
-      try {
-        await webServer.close();
-      } catch {
-        // Non-fatal
-      }
-      webServer = null;
-    }
-
-    // 3. Close the store (instant)
+    // 2. Close the store (instant)
     if (store) {
       try {
         await closeStore(store);

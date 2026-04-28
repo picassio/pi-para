@@ -28,9 +28,12 @@ import {
   readPage,
   writePage,
   movePage,
+  gitCommit,
   PARA_CATEGORIES,
 } from "../wiki.js";
 import type { ParaCategory, WikiPage, PageRef, PageFrontmatter } from "../wiki.js";
+import { extractWikilinks } from "../link-utils.js";
+import { redactSecrets } from "../redact.js";
 import { searchWiki, reindex } from "../store.js";
 import type { QMDStore } from "../store.js";
 import { readSessionDigests } from "../raw.js";
@@ -86,17 +89,7 @@ const MIME_TYPES: Record<string, string> = {
 
 // -- Helpers ----------------------------------------------------------------
 
-const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-
-function extractWikilinks(body: string): string[] {
-  const links: string[] = [];
-  let m: RegExpExecArray | null;
-  const re = new RegExp(WIKILINK_RE.source, WIKILINK_RE.flags);
-  while ((m = re.exec(body)) !== null) {
-    links.push(m[1].trim());
-  }
-  return links;
-}
+// extractWikilinks imported from ../link-utils.js
 
 function json(res: ServerResponse, data: unknown, statusCode = 200): void {
   const body = JSON.stringify(data);
@@ -221,8 +214,8 @@ async function handleListPages(
 ): Promise<void> {
   const refs = await listPages(wikiDir);
 
-  // Group by category
-  const grouped: Record<ParaCategory, Array<{ slug: string; title: string; path: string }>> = {
+  // Group by category, include scope for filtering
+  const grouped: Record<ParaCategory, Array<{ slug: string; title: string; path: string; scope: string[]; tags: string[] }>> = {
     projects: [],
     areas: [],
     resources: [],
@@ -230,10 +223,13 @@ async function handleListPages(
   };
 
   for (const ref of refs) {
+    const page = await readPage(wikiDir, ref.category, ref.slug);
     grouped[ref.category].push({
       slug: ref.slug,
       title: ref.title,
       path: ref.path,
+      scope: page?.frontmatter.scope ?? [],
+      tags: page?.frontmatter.tags ?? [],
     });
   }
 
@@ -298,7 +294,9 @@ async function handleUpdatePage(
   }
 
   // Update body if provided
-  const newBody = typeof payload.body === "string" ? payload.body : existing.body;
+  // Redact secrets before saving
+  const pageBody = typeof payload.body === "string" ? payload.body : existing.body;
+  const newBody = redactSecrets(pageBody).text;
 
   // Update frontmatter fields if provided
   const newFrontmatter: PageFrontmatter = { ...existing.frontmatter };
@@ -327,6 +325,9 @@ async function handleUpdatePage(
       // Non-fatal — search may be stale until next reindex
     }
   }
+
+  // Git commit
+  await gitCommit(wikiDir, `webui: update ${category}/${slug}`);
 
   json(res, {
     category: updatedPage.category,

@@ -14,6 +14,7 @@ import {
   access,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -383,4 +384,54 @@ export async function appendLog(
  */
 export async function readSchema(wikiDir: string): Promise<string> {
   return readFile(join(wikiDir, "schema.md"), "utf-8");
+}
+
+// -- Git auto-commit ---------------------------------------------------------
+
+/**
+ * Run a git command in the wiki directory. Returns stdout or null on failure.
+ */
+function git(wikiDir: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile("git", args, { cwd: wikiDir, timeout: 10_000 }, (err, stdout) => {
+      if (err) resolve(null);
+      else resolve(stdout.trim());
+    });
+  });
+}
+
+/**
+ * Auto-commit all wiki changes with a descriptive message.
+ *
+ * Silently no-ops if:
+ * - git is not installed
+ * - wiki dir is not a git repo
+ * - there are no changes to commit
+ */
+export async function gitCommit(
+  wikiDir: string,
+  message: string,
+): Promise<boolean> {
+  try {
+    // Check if it's a git repo
+    const isRepo = await git(wikiDir, ["rev-parse", "--git-dir"]);
+    if (!isRepo) {
+      // Auto-init if not a repo yet
+      const initResult = await git(wikiDir, ["init"]);
+      if (!initResult) return false;
+    }
+
+    // Stage all changes
+    await git(wikiDir, ["add", "-A"]);
+
+    // Check if there's anything to commit
+    const status = await git(wikiDir, ["status", "--porcelain"]);
+    if (!status) return false; // nothing to commit
+
+    // Commit
+    const result = await git(wikiDir, ["commit", "-m", message, "--no-gpg-sign"]);
+    return result !== null;
+  } catch {
+    return false;
+  }
 }

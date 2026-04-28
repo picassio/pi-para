@@ -14,10 +14,14 @@ import {
   listPages,
   writeIndex,
   appendLog,
+  gitCommit,
   PARA_CATEGORIES,
 } from "./wiki.js";
 import type { WikiPage, ParaCategory, PageRef } from "./wiki.js";
 import { validateFrontmatter } from "./frontmatter.js";
+import { extractWikilinks, autoLinkSlugs, syncFrontmatterLinks } from "./link-utils.js";
+import { normalizeTags, normalizeScopes } from "./tag-registry.js";
+import { redactSecrets } from "./redact.js";
 import { reindex, searchWiki } from "./store.js";
 import { appendSessionDigest } from "./raw.js";
 import { Type } from "typebox";
@@ -62,38 +66,51 @@ function createWikiTools(wikiDir: string, store: QMDStore): AgentTool[] {
       const slug = params.slug.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
       const existing = await readPage(wikiDir, params.category, slug);
 
+      // Gather all existing slugs for auto-linking
+      const allRefs = await listPages(wikiDir);
+      const allSlugs = new Set(allRefs.map(r => r.slug));
+      allSlugs.add(slug);
+
+      // Auto-link slug mentions in body text, redact any secrets
+      const linkedBody = redactSecrets(autoLinkSlugs(params.body, allSlugs, slug)).text;
+
       if (existing) {
-        // Update
+        // Update existing page (exact slug match)
+        const rawScope = params.scope.length > 0 ? params.scope : existing.frontmatter.scope;
+        const newScope = normalizeScopes(rawScope);
+        const mergedTags = [...new Set([...existing.frontmatter.tags, ...params.tags])];
         const updated: WikiPage = {
           ...existing,
-          body: params.body,
+          body: linkedBody,
           frontmatter: {
             ...existing.frontmatter,
             title: params.title,
-            scope: params.scope.length > 0 ? params.scope : existing.frontmatter.scope,
-            tags: [...new Set([...existing.frontmatter.tags, ...params.tags])],
+            scope: newScope,
+            tags: normalizeTags(mergedTags, newScope),
             updated: now,
-            links: extractWikilinks(params.body),
+            links: syncFrontmatterLinks(linkedBody),
           },
         };
         await writePage(wikiDir, updated);
       } else {
-        // Create
+        // Create new page
+        const newScope = normalizeScopes(params.scope);
         const fm = validateFrontmatter({
           title: params.title,
           para: params.category,
-          scope: params.scope,
-          tags: params.tags,
+          scope: newScope,
+          tags: normalizeTags(params.tags, newScope),
           sources: [],
           created: now,
           updated: now,
-          links: extractWikilinks(params.body),
+          links: syncFrontmatterLinks(linkedBody),
         });
-        await writePage(wikiDir, { category: params.category, slug, frontmatter: fm, body: params.body });
+        await writePage(wikiDir, { category: params.category, slug, frontmatter: fm, body: linkedBody });
       }
 
       await reindex(store);
       await rebuildIndex(wikiDir);
+      await gitCommit(wikiDir, `capture: ${params.category}/${slug}`);
 
       return {
         content: [{ type: "text", text: `Wrote ${params.category}/${slug}` }],
@@ -160,18 +177,6 @@ function createWikiTools(wikiDir: string, store: QMDStore): AgentTool[] {
 
 // -- Helpers -----------------------------------------------------------------
 
-const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-
-function extractWikilinks(body: string): string[] {
-  const links: string[] = [];
-  let m: RegExpExecArray | null;
-  const re = new RegExp(WIKILINK_RE.source, WIKILINK_RE.flags);
-  while ((m = re.exec(body)) !== null) {
-    if (m[1]) links.push(m[1]);
-  }
-  return [...new Set(links)];
-}
-
 async function rebuildIndex(wikiDir: string): Promise<void> {
   const allPages = await listPages(wikiDir);
   const sections: Record<ParaCategory, string[]> = {
@@ -208,11 +213,28 @@ And tools to write to the wiki:
 - wiki_read: Read an existing page
 - wiki_write: Create or update a wiki page
 
+PARA category rules (IMPORTANT):
+- **resources/**: Use for almost everything — architecture docs, how-tos, debugging solutions, configs, patterns, reference material. This is the default.
+- **areas/**: Only for ongoing responsibilities with no end date (e.g. server config, deployment procedures).
+- **projects/**: ONLY for actual project goals with a defined end date. Do NOT use for documentation about a project's internals. A page like "pi-para-daemon" is a resource about pi-para, not a project.
+- **archives/**: Never create pages here — pages get moved here when completed.
+
+Scope rules:
+- scope must be a project name in kebab-case (e.g. "pi-para", "qmd", "pi-mono")
+- Do NOT put topic descriptions in scope (wrong: "session exploration", right: "pi-para")
+
+Security rules:
+- NEVER include API keys, tokens, passwords, or secrets in wiki pages
+- Document WHERE the secret is stored (e.g. "API key in ~/.config/qmd/index.yml"), not the value itself
+
 Your workflow:
 1. Call session_stats to understand the session
-2. For each user topic, call session_search or session_slice to read the relevant discussion
-3. Call wiki_query to check if similar knowledge already exists
-4. Call wiki_write to create new pages or update existing ones
+2. For each topic, call wiki_query FIRST to find existing pages on that topic
+3. Call session_search or session_slice to read the relevant discussion
+4. If wiki_query found a matching page, call wiki_read to get its content, then wiki_write to UPDATE it (use the same slug)
+5. Only create a NEW page if wiki_query returned no relevant results
+
+CRITICAL: ALWAYS prefer updating existing pages over creating new ones. The wiki already has many pages — search before writing. If you find a page covering the same topic (even with a different title), update it by using its exact slug.
 
 Capture ANY of these — even small facts:
 - Architecture decisions and rationale
@@ -327,13 +349,30 @@ export async function processSession(
   try {
     await agent.prompt(promptText);
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[processor] Agent error: ${errMsg}`);
     return {
       pagesCreated: [],
       pagesUpdated: [],
       skipped: true,
-      reason: `Agent error: ${err instanceof Error ? err.message : String(err)}`,
+      reason: `Agent error: ${errMsg}`,
     };
   }
+
+  // Debug: log what the agent did
+  const msgCount = agent.state.messages.length;
+  const toolCalls = agent.state.messages.filter(m => m.role === "toolResult").length;
+  const lastMsg = agent.state.messages[msgCount - 1];
+  let lastContent = "";
+  if (lastMsg && "content" in lastMsg) {
+    const c = lastMsg.content;
+    if (typeof c === "string") lastContent = c.slice(0, 200);
+    else if (Array.isArray(c)) {
+      const tb = c.find((b: any) => b.type === "text") as { text: string } | undefined;
+      if (tb) lastContent = tb.text.slice(0, 200);
+    }
+  }
+  console.log(`[processor] Agent finished: ${msgCount} messages, ${toolCalls} tool results. Last: ${lastContent}`);
 
   // 6. Extract what was written from agent's messages
   const pagesCreated: string[] = [];

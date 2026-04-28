@@ -27,6 +27,7 @@ import {
   writeIndex,
   readSchema,
   appendLog,
+  gitCommit,
   PARA_CATEGORIES,
 } from "./wiki.js";
 import type {
@@ -35,6 +36,9 @@ import type {
   PageRef,
 } from "./wiki.js";
 import { validateFrontmatter, parseFrontmatter } from "./frontmatter.js";
+import { extractWikilinks, autoLinkSlugs, syncFrontmatterLinks } from "./link-utils.js";
+import { normalizeTags, normalizeScopes } from "./tag-registry.js";
+import { redactSecrets } from "./redact.js";
 import { lintWiki } from "./lint.js";
 import type { LintReport } from "./lint.js";
 import { generateOverviewPrompt } from "./summarize.js";
@@ -80,6 +84,11 @@ const WikiQueryParams = Type.Object({
   ),
 });
 
+const WikiEditSchema = Type.Object({
+  oldText: Type.String({ description: "Exact text to find in the page body" }),
+  newText: Type.String({ description: "Replacement text" }),
+});
+
 const WikiWritePageSchema = Type.Object({
   category: PARA_ENUM,
   slug: Type.String({ description: "Page slug (lowercase, hyphens)" }),
@@ -87,9 +96,12 @@ const WikiWritePageSchema = Type.Object({
   scope: Type.Array(Type.String(), { description: "Scope tags" }),
   tags: Type.Array(Type.String(), { description: "Topic tags" }),
   body: Type.String({ description: "Page body in markdown (wiki summary format)" }),
-  mode: StringEnum(["create", "replace", "append"] as const, {
-    description: "Write mode: create new, replace existing, or append to existing",
+  mode: StringEnum(["create", "replace", "append", "edit"] as const, {
+    description: "Write mode: create new, replace existing, append to existing, or edit specific sections",
   }),
+  edits: Type.Optional(Type.Array(WikiEditSchema, {
+    description: "For mode=edit: targeted text replacements (oldText→newText). Page must exist.",
+  })),
 });
 
 const WikiWriteParams = Type.Object({
@@ -318,7 +330,8 @@ function createWriteExecute(
         scope: string[];
         tags: string[];
         body: string;
-        mode: "create" | "replace" | "append";
+        mode: "create" | "replace" | "append" | "edit";
+        edits?: Array<{ oldText: string; newText: string }>;
       }>;
       indexContent?: string;
       logSummary?: string;
@@ -327,6 +340,10 @@ function createWriteExecute(
     const pagesWritten: string[] = [];
     const now = new Date().toISOString();
     const scope = getScope();
+
+    // Gather all existing slugs for auto-linking
+    const allRefs = await listPages(wikiDir);
+    const allSlugs = new Set(allRefs.map(r => r.slug));
 
     for (const pageSpec of params.pages) {
       // Sanitize slug
@@ -343,24 +360,69 @@ function createWriteExecute(
       const existing = await readPage(wikiDir, pageSpec.category, slug);
       const pagePath = `${pageSpec.category}/${slug}`;
 
-      if (pageSpec.mode === "append" && existing) {
+      // Track this slug for auto-linking other pages in this batch
+      allSlugs.add(slug);
+
+      if (pageSpec.mode === "edit" && existing) {
+        // Edit mode: apply targeted oldText→newText replacements
+        const edits = pageSpec.edits ?? [];
+        if (edits.length === 0) {
+          continue; // no edits to apply
+        }
+        let editedBody = existing.body;
+        const errors: string[] = [];
+        for (const edit of edits) {
+          const idx = editedBody.indexOf(edit.oldText);
+          if (idx === -1) {
+            errors.push(`oldText not found: "${edit.oldText.slice(0, 60)}..."`);
+            continue;
+          }
+          editedBody = editedBody.slice(0, idx) + edit.newText + editedBody.slice(idx + edit.oldText.length);
+        }
+        const linkedBody = redactSecrets(autoLinkSlugs(editedBody, allSlugs, slug)).text;
+        const rawScope = pageSpec.scope.length > 0 ? pageSpec.scope : existing.frontmatter.scope;
+        const newScope = normalizeScopes(rawScope);
+        const newTags = pageSpec.tags.length > 0 ? pageSpec.tags : existing.frontmatter.tags;
+        const updatedPage: WikiPage = {
+          category: pageSpec.category,
+          slug,
+          frontmatter: {
+            ...existing.frontmatter,
+            title: pageSpec.title || existing.frontmatter.title,
+            scope: newScope,
+            tags: normalizeTags(newTags, newScope),
+            updated: now,
+            links: syncFrontmatterLinks(linkedBody),
+          },
+          body: linkedBody,
+        };
+        await writePage(wikiDir, updatedPage);
+        pagesWritten.push(pagePath + (errors.length > 0 ? ` (${errors.length} edit(s) failed)` : ""));
+      } else if (pageSpec.mode === "append" && existing) {
         // Append to existing page body
+        const combinedBody = existing.body.trimEnd() + "\n\n" + pageSpec.body;
+        const linkedBody = redactSecrets(autoLinkSlugs(combinedBody, allSlugs, slug)).text;
+        const mergedTags = [...new Set([...existing.frontmatter.tags, ...pageSpec.tags])];
+        const mergedScope = normalizeScopes([...new Set([...existing.frontmatter.scope, ...pageSpec.scope])]);
         const updatedPage: WikiPage = {
           ...existing,
-          body: existing.body.trimEnd() + "\n\n" + pageSpec.body,
+          body: linkedBody,
           frontmatter: {
             ...existing.frontmatter,
             updated: now,
-            // Merge tags
-            tags: [...new Set([...existing.frontmatter.tags, ...pageSpec.tags])],
-            // Merge scope
-            scope: [...new Set([...existing.frontmatter.scope, ...pageSpec.scope])],
+            tags: normalizeTags(mergedTags, mergedScope),
+            scope: mergedScope,
+            links: syncFrontmatterLinks(linkedBody),
           },
         };
         await writePage(wikiDir, updatedPage);
         pagesWritten.push(pagePath);
       } else if (pageSpec.mode === "replace" && existing) {
         // Replace existing page body, update frontmatter
+        const linkedBody = redactSecrets(autoLinkSlugs(pageSpec.body, allSlugs, slug)).text;
+        const rawScope = pageSpec.scope.length > 0 ? pageSpec.scope : existing.frontmatter.scope;
+        const newScope = normalizeScopes(rawScope);
+        const newTags = pageSpec.tags.length > 0 ? pageSpec.tags : existing.frontmatter.tags;
         const updatedPage: WikiPage = {
           category: pageSpec.category,
           slug,
@@ -368,33 +430,36 @@ function createWriteExecute(
             ...existing.frontmatter,
             title: pageSpec.title,
             para: pageSpec.category,
-            scope: pageSpec.scope.length > 0 ? pageSpec.scope : existing.frontmatter.scope,
-            tags: pageSpec.tags.length > 0 ? pageSpec.tags : existing.frontmatter.tags,
+            scope: newScope,
+            tags: normalizeTags(newTags, newScope),
             updated: now,
-            links: extractWikilinks(pageSpec.body),
+            links: syncFrontmatterLinks(linkedBody),
           },
-          body: pageSpec.body,
+          body: linkedBody,
         };
         await writePage(wikiDir, updatedPage);
         pagesWritten.push(pagePath);
       } else {
         // Create new page (or mode=create/replace on non-existing)
+        const linkedBody = redactSecrets(autoLinkSlugs(pageSpec.body, allSlugs, slug)).text;
+        const rawScope = pageSpec.scope.length > 0 ? pageSpec.scope : [scope.name];
+        const newScope = normalizeScopes(rawScope);
         const frontmatter = validateFrontmatter({
           title: pageSpec.title,
           para: pageSpec.category,
-          scope: pageSpec.scope.length > 0 ? pageSpec.scope : [scope.name],
-          tags: pageSpec.tags,
+          scope: newScope,
+          tags: normalizeTags(pageSpec.tags, newScope),
           sources: [],
           created: now,
           updated: now,
-          links: extractWikilinks(pageSpec.body),
+          links: syncFrontmatterLinks(linkedBody),
         });
 
         const newPage: WikiPage = {
           category: pageSpec.category,
           slug,
           frontmatter,
-          body: pageSpec.body,
+          body: linkedBody,
         };
         await writePage(wikiDir, newPage);
         pagesWritten.push(pagePath);
@@ -462,6 +527,14 @@ function createWriteExecute(
 
     // Mark context cache dirty so before_agent_start rebuilds
     markDirty();
+
+    // Git auto-commit
+    if (pagesWritten.length > 0) {
+      const commitMsg = params.logSummary
+        ? params.logSummary
+        : `wiki: ${pagesWritten.join(", ")}`;
+      await gitCommit(wikiDir, commitMsg);
+    }
 
     const summary = pagesWritten.length > 0
       ? `Wrote ${pagesWritten.length} page(s): ${pagesWritten.join(", ")}`
@@ -595,6 +668,9 @@ function createMoveExecute(
     // Re-index
     await reindex(store);
     markDirty();
+
+    // Git commit
+    await gitCommit(wikiDir, `move: ${page.frontmatter.title} → ${params.to}`);
 
     // Log the move
     const now = new Date().toISOString();
@@ -758,20 +834,8 @@ function createSummarizeExecute(
   };
 }
 
-// -- Wikilink extraction helper ----------------------------------------------
-
-const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-
-/** Extract all [[wikilink]] targets from markdown body. */
-function extractWikilinks(body: string): string[] {
-  const links: string[] = [];
-  let m: RegExpExecArray | null;
-  const re = new RegExp(WIKILINK_RE.source, WIKILINK_RE.flags);
-  while ((m = re.exec(body)) !== null) {
-    links.push(m[1].trim());
-  }
-  return [...new Set(links)];
-}
+// -- Wikilink extraction helper (re-exported from link-utils) ----------------
+// extractWikilinks, autoLinkSlugs, syncFrontmatterLinks imported above
 
 // -- Public API: register tools for pi session -------------------------------
 
@@ -891,14 +955,15 @@ export function registerTools(
     name: "wiki_write",
     label: "Wiki Write",
     description:
-      "Write or update wiki pages. Supports create, replace, and append modes. " +
+      "Write or update wiki pages. Supports create, replace, append, and edit modes. " +
       "Optionally update index.md and append to log.md. " +
       "Pages are automatically re-indexed for search after writing.",
-    promptSnippet: "Write/update PARA wiki pages with frontmatter and markdown body",
+    promptSnippet: "Write/update PARA wiki pages with frontmatter and markdown body. Use mode=edit with edits[{oldText,newText}] to surgically update sections.",
     promptGuidelines: [
       "Use wiki_write after wiki_ingest to create/update pages based on the ingested content.",
       "Use wiki_write to save valuable answers or synthesis back into the wiki when they add new knowledge.",
       "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked.",
+      "Prefer mode=edit with edits[{oldText,newText}] to update specific sections of existing pages. Use mode=append to add new sections. Only use mode=replace when rewriting the entire page.",
     ],
     parameters: WikiWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

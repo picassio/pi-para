@@ -6,7 +6,7 @@
  *           /wiki-daemon, /wiki-settings
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { QMDStore } from "@picassio/qmd";
@@ -189,17 +189,32 @@ export function registerCommands(
   // ---- /wiki-capture — capture via session LLM ----------------------------
 
   pi.registerCommand("wiki-capture", {
-    description: "Capture knowledge from the current session into the wiki",
+    description: "Capture knowledge from this session into the wiki (runs in background via daemon)",
     handler: async (args, ctx) => {
-      const topic = args.trim();
-      await ctx.waitForIdle();
-      if (topic) {
-        pi.sendUserMessage(
-          `Save this to the wiki using wiki_write: ${topic}`,
+      const sessionFile = ctx.sessionManager.getSessionFile();
+      if (!sessionFile) {
+        ctx.ui.notify("No session file found", "warning");
+        return;
+      }
+
+      // Register the session for daemon capture — runs in background, doesn't block user
+      try {
+        const registry = join(wikiDir, ".completed-sessions");
+        const entry = `${new Date().toISOString()}|${sessionFile}\n`;
+        await appendFile(registry, entry);
+
+        ctx.ui.notify(
+          "Session queued for wiki capture (daemon will process in background).\n" +
+          "Check progress: /wiki-daemon status\n" +
+          "Tip: Set \"daemonModel\" in ~/.pi/wiki/config.json for better capture quality.",
+          "info",
         );
-      } else {
-        pi.sendUserMessage(
-          "Review the recent conversation and save any valuable knowledge to the wiki using wiki_write. Look for architecture decisions, debugging solutions, server details, build procedures, tool configs, and operational knowledge.",
+        ctx.ui.setStatus("pi-para", "wiki: capture queued");
+        setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
+      } catch (err) {
+        ctx.ui.notify(
+          `Failed to queue capture: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
         );
       }
     },
@@ -302,63 +317,80 @@ export function registerCommands(
   // ---- /wiki-daemon — daemon management ------------------------------------
 
   pi.registerCommand("wiki-daemon", {
-    description: "Manage the background knowledge capture daemon",
+    description: "Check daemon status and capture history",
     getArgumentCompletions: (prefix) => {
-      const cmds = ["start", "stop", "status", "process-recent", "retry-failed", "history"];
+      const cmds = ["status", "history"];
       const filtered = cmds.filter((c) => c.startsWith(prefix));
       return filtered.length > 0 ? filtered.map((c) => ({ value: c, label: c })) : null;
     },
     handler: async (args, ctx) => {
       const subcmd = args.trim().split(/\s+/)[0] || "status";
 
-      try {
-        const { execSync } = await import("node:child_process");
-        const daemonBin = join(wikiDir, "..", "..", "projects", "pi-para", "src", "cli.ts");
-        const npxTsx = "npx tsx";
+      // Read state directly from the state DB — fast, no subprocess needed
+      const { StateDB } = await import("./state.js");
+      const state = new StateDB(wikiDir);
 
+      try {
         switch (subcmd) {
-          case "start": {
-            const { spawn } = await import("node:child_process");
-            const child = spawn("npx", ["tsx", daemonBin, "start"], {
-              cwd: join(wikiDir, "..", "..", "projects", "pi-para"),
-              detached: true,
-              stdio: "ignore",
-            });
-            child.unref();
-            ctx.ui.notify(`Daemon started (PID ${child.pid})`, "info");
-            break;
-          }
-          case "stop": {
-            const output = execSync(`${npxTsx} ${daemonBin} stop 2>&1`, { encoding: "utf-8", timeout: 10000 });
-            ctx.ui.notify(output.trim(), "info");
-            break;
-          }
           case "status": {
-            const output = execSync(`${npxTsx} ${daemonBin} status 2>&1`, { encoding: "utf-8", timeout: 10000 });
-            ctx.ui.notify(output.trim(), "info");
-            break;
-          }
-          case "process-recent": {
-            ctx.ui.notify("Processing recent sessions...", "info");
-            const output = execSync(`${npxTsx} ${daemonBin} process-recent 2>&1`, { encoding: "utf-8", timeout: 300000 });
-            ctx.ui.notify(output.trim(), "info");
-            break;
-          }
-          case "retry-failed": {
-            const output = execSync(`${npxTsx} ${daemonBin} retry-failed 2>&1`, { encoding: "utf-8", timeout: 300000 });
-            ctx.ui.notify(output.trim(), "info");
+            const pid = state.getState("daemon_pid");
+            const startedAt = state.getState("daemon_started_at");
+            const history = state.getHistory(undefined, 5);
+            const failed = state.getFailed();
+
+            let running = false;
+            if (pid) {
+              try { process.kill(parseInt(pid), 0); running = true; } catch {}
+            }
+
+            const lines = [
+              `Daemon: ${running ? `running (PID ${pid})` : "not running"}`,
+              startedAt ? `Started: ${startedAt}` : "",
+              `Failed: ${failed.length}`,
+              "",
+              "Recent captures:",
+            ];
+            if (history.length === 0) {
+              lines.push("  (none)");
+            } else {
+              for (const h of history) {
+                const status = h.error
+                  ? `ERROR: ${h.error.slice(0, 50)}`
+                  : h.pagesCreated.length > 0
+                    ? `${h.pagesCreated.length} page(s)`
+                    : "skipped";
+                lines.push(`  ${h.processedAt.slice(0, 19)} | ${h.scope} | ${status}`);
+              }
+            }
+            ctx.ui.notify(lines.filter(Boolean).join("\n"), "info");
             break;
           }
           case "history": {
-            const output = execSync(`${npxTsx} ${daemonBin} history 2>&1`, { encoding: "utf-8", timeout: 10000 });
-            ctx.ui.notify(output.trim(), "info");
+            const scope = getScope();
+            const history = state.getHistory(scope.name, 15);
+
+            if (history.length === 0) {
+              ctx.ui.notify(`No capture history for scope: ${scope.name}`, "info");
+              break;
+            }
+
+            const lines = [`Capture history (${scope.name}):\n`];
+            for (const h of history) {
+              const status = h.error
+                ? `ERROR: ${h.error.slice(0, 60)}`
+                : h.pagesCreated.length > 0
+                  ? `${h.pagesCreated.length} page(s): ${h.pagesCreated.join(", ")}`
+                  : "skipped";
+              lines.push(`${h.processedAt.slice(0, 19)} | ${status}`);
+            }
+            ctx.ui.notify(lines.join("\n"), "info");
             break;
           }
           default:
-            ctx.ui.notify(`Unknown daemon command: ${subcmd}. Use: start, stop, status, process-recent, retry-failed, history`, "error");
+            ctx.ui.notify(`Usage: /wiki-daemon [status|history]`, "error");
         }
-      } catch (err) {
-        ctx.ui.notify(`Daemon command failed: ${err instanceof Error ? err.message : String(err)}`, "error");
+      } finally {
+        state.close();
       }
     },
   });
@@ -451,13 +483,60 @@ export function registerCommands(
             }
           }
         } else if (choice.startsWith("[Daemon]")) {
-          const val = await ctx.ui.input(
-            "Daemon model (provider/model-id, or empty for auto):",
-            config.daemonModel ? String(config.daemonModel) : "",
-          );
-          config.daemonModel = val?.trim() || null;
-          await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-          ctx.ui.notify(`Set daemonModel = ${config.daemonModel ?? "auto"}`, "info");
+          try {
+            const { getProviders, getModels } = await import("@mariozechner/pi-ai");
+            const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+            const authStorage = AuthStorage.create();
+
+            // Find providers that have auth configured
+            const allProviders = getProviders();
+            const availableProviders: string[] = [];
+            for (const p of allProviders) {
+              if (authStorage.hasAuth(p)) availableProviders.push(p);
+            }
+
+            if (availableProviders.length === 0) {
+              ctx.ui.notify("No providers configured. Log in with pi first.", "warning");
+            } else {
+              // Let user pick provider
+              const providerChoice = await ctx.ui.select(
+                "Select provider",
+                ["auto (best available)", ...availableProviders],
+              );
+
+              if (providerChoice === "auto (best available)") {
+                config.daemonModel = null;
+                await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+                ctx.ui.notify("Set daemonModel = auto", "info");
+              } else if (providerChoice) {
+                // Show models for selected provider
+                const models = getModels(providerChoice as any)
+                  .sort((a: any, b: any) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
+                const modelOptions = models.map((m: any) =>
+                  `${m.id} (${Math.round((m.contextWindow ?? 0) / 1000)}k ctx${m.reasoning ? ", reasoning" : ""})`
+                );
+                const modelChoice = await ctx.ui.select(
+                  `Select ${providerChoice} model`,
+                  modelOptions,
+                );
+                if (modelChoice) {
+                  const modelId = modelChoice.split(" (")[0];
+                  config.daemonModel = `${providerChoice}/${modelId}`;
+                  await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+                  ctx.ui.notify(`Set daemonModel = ${config.daemonModel}`, "info");
+                }
+              }
+            }
+          } catch (err) {
+            // Fallback to manual input if AuthStorage not available
+            const val = await ctx.ui.input(
+              "Daemon model (provider/model-id, or empty for auto):",
+              config.daemonModel ? String(config.daemonModel) : "",
+            );
+            config.daemonModel = val?.trim() || null;
+            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+            ctx.ui.notify(`Set daemonModel = ${config.daemonModel ?? "auto"}`, "info");
+          }
         } else if (choice.startsWith("[WebWiki]")) {
           const webWiki = (config as any).webWiki ?? { enabled: false, host: "0.0.0.0", port: 10973 };
           const sub = await ctx.ui.select("Web Wiki Settings", [

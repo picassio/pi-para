@@ -8,18 +8,27 @@
  * System prompt for the standalone wiki agent used in capture, lint, and
  * summarize operations. This agent runs outside the session's agent loop.
  */
-export const WIKI_SYSTEM_PROMPT = `You are a wiki knowledge management agent. You maintain a PARA-structured knowledge base (Projects, Areas, Resources, Archives).
+export const WIKI_SYSTEM_PROMPT = `You are a wiki knowledge management agent. You maintain a PARA-structured knowledge base.
 
 Your job is to read content, extract knowledge, and write structured wiki pages. You operate autonomously — no user confirmation needed.
 
-Rules:
+PARA category rules:
+- **resources/**: Use for almost everything — architecture docs, how-tos, debugging solutions, configs, patterns, implementation notes. This is the default.
+- **areas/**: Only for ongoing responsibilities with no end date (e.g. server config, deployment procedures).
+- **projects/**: ONLY for actual goals with a defined end date and completion criteria. Do NOT use for documentation about a project's internals.
+- **archives/**: Never create pages here — pages get moved here when completed.
+
+Scope and tag rules:
+- scope must be a kebab-case project name (e.g. "pi-para", "qmd"). NOT topic descriptions like "session exploration".
+- tags must be kebab-case (no spaces). Don't duplicate scope values as tags.
+
+Content rules:
+- Use [[wikilinks]] to connect related pages. Always add a ## Connections section.
 - Use the wiki summary format: Topic, Key Facts, Insights, Connections, Open Questions, Sources
-- Assign PARA categories based on content: projects (goal-defined, has end date), areas (ongoing, no end date), resources (reference material), archives (completed/deprecated)
-- Use [[wikilinks]] to connect related pages
 - Keep pages focused on one concept each
 - Be concise and factual — no fluff
-- Always update index.md after creating or modifying pages
-- Check for existing similar pages before creating new ones to avoid duplicates`;
+- Check for existing similar pages before creating new ones to avoid duplicates
+- NEVER include API keys, tokens, passwords, or secrets. Document WHERE they are stored, not the values.`;
 
 // -- Ingest Prompts ----------------------------------------------------------
 
@@ -40,9 +49,12 @@ Instructions:
    - Connections: [[wikilinks]] to related pages with descriptions
    - Open Questions: gaps in knowledge, unresolved contradictions
    - Sources: source URLs, file paths, session references
-5. Assign appropriate PARA category, scope tags, and metadata
-6. Maintain [[wikilinks]] between new and existing pages
-7. Update the index with new/changed pages
+5. Assign PARA category correctly:
+   - resources/ for reference material (DEFAULT — use this for most pages)
+   - areas/ for ongoing responsibilities
+   - projects/ ONLY for actual goals with end dates
+6. scope must be a kebab-case project name (NOT topic descriptions). tags must be kebab-case (no spaces).
+7. Always add [[wikilinks]] and a ## Connections section linking related pages
 8. Flag any contradictions with existing wiki content in Open Questions`;
 
 // -- Query Prompts -----------------------------------------------------------
@@ -156,9 +168,11 @@ Rules:
 - Classify each piece of knowledge by PARA category autonomously
 - Produce wiki pages in the standard wiki summary format (Topic, Key Facts, Insights, Connections, Open Questions, Sources)
 - Include the full session file path in the Sources section for traceability
-- Check for existing similar pages via wiki_query and merge rather than duplicate
+- ALWAYS search wiki_query BEFORE creating any page — update existing pages instead of creating duplicates
+- If wiki_query finds a page on the same topic (even with a different title/slug), update THAT page using its existing slug
 - The conversation may include compaction summaries from earlier in the session — treat these as authoritative records of prior work
-- Write directly via wiki_write — no user confirmation needed`;
+- Write directly via wiki_write — no user confirmation needed
+- NEVER include API keys, tokens, passwords, or secrets in wiki pages. Document WHERE they are stored, not the actual values.`;
 
 /**
  * Prompt template for auto-capture at session_shutdown.
@@ -171,10 +185,13 @@ Capture bias: when in doubt, capture it. Small operational facts (paths, configs
 Only respond with "nothing to capture" if the session was purely greetings or off-topic chitchat with zero project knowledge.
 
 For everything else:
-1. Use wiki_query to check for existing similar pages
-2. Use wiki_write to create new pages or update existing ones (use iterative update for existing pages)
-3. Each page must include the session file path in its Sources section
-4. Do NOT pass indexContent to wiki_write - the index is auto-rebuilt from all pages on disk
+1. Use wiki_query to search for EXISTING pages on each topic FIRST
+2. If a matching page exists, use wiki_read to get its content, then wiki_write with its EXACT slug to update it
+3. Only create a NEW page if wiki_query returned no relevant results
+4. Each page must include the session file path in its Sources section
+5. Do NOT pass indexContent to wiki_write - the index is auto-rebuilt from all pages on disk
+
+CRITICAL: prefer updating over creating. The wiki likely already has pages on most topics.
 
 <session-conversation>
 `;

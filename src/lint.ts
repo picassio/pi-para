@@ -20,6 +20,14 @@ import {
   PARA_CATEGORIES,
 } from "./wiki.js";
 import type { ParaCategory, WikiPage, PageRef } from "./wiki.js";
+import {
+  extractWikilinks,
+  removeWikilink,
+  autoLinkSlugs,
+  syncFrontmatterLinks,
+} from "./link-utils.js";
+import { normalizeTags, normalizeScopes } from "./tag-registry.js";
+import { containsSecrets, redactSecrets } from "./redact.js";
 
 // -- Types ------------------------------------------------------------------
 
@@ -54,27 +62,6 @@ export interface WikiStats {
 }
 
 // -- Helpers ----------------------------------------------------------------
-
-const WIKILINK_RE = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-
-/** Extract all [[wikilink]] targets from markdown body text. */
-function extractWikilinks(body: string): string[] {
-  const links: string[] = [];
-  let m: RegExpExecArray | null;
-  const re = new RegExp(WIKILINK_RE.source, WIKILINK_RE.flags);
-  while ((m = re.exec(body)) !== null) {
-    links.push(m[1].trim());
-  }
-  return links;
-}
-
-/** Remove [[target]] (and optional display text) from body text. */
-function removeWikilink(body: string, target: string): string {
-  // Remove [[target]] or [[target|display]] entirely
-  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`\\[\\[${escaped}(?:\\|[^\\]]+)?\\]\\]`, "g");
-  return body.replace(re, "");
-}
 
 function daysBetween(a: Date, b: Date): number {
   return Math.abs(b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24);
@@ -415,7 +402,283 @@ function checkDuplicateSlugs(pages: WikiPage[]): LintIssue[] {
   return issues;
 }
 
+/** 11. Link sync: slug mentions in body not wrapped in [[wikilinks]] */
+function checkLinkSync(
+  pages: WikiPage[],
+  allSlugs: Set<string>,
+): LintIssue[] {
+  const issues: LintIssue[] = [];
+  for (const p of pages) {
+    // Find slugs mentioned in body but not wrapped in [[...]]
+    const bodyLinks = new Set(extractWikilinks(p.body));
+    const sortedSlugs = [...allSlugs]
+      .filter(s => s !== p.slug)
+      .sort((a, b) => b.length - a.length);
+
+    const unlinked: string[] = [];
+    for (const slug of sortedSlugs) {
+      if (bodyLinks.has(slug)) continue;
+      // Check if slug appears as plain text in body (word-boundary match)
+      const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(?<![a-z0-9-])${escaped}(?![a-z0-9-])`);
+      if (re.test(p.body)) {
+        unlinked.push(slug);
+      }
+    }
+
+    if (unlinked.length > 0) {
+      issues.push({
+        severity: "warning",
+        category: "link-sync",
+        page: `${p.category}/${p.slug}`,
+        message: `${unlinked.length} unlinked slug mention(s): ${unlinked.join(", ")}`,
+        autoFixable: true,
+      });
+    }
+
+    // Check frontmatter.links out of sync with body
+    const expectedLinks = syncFrontmatterLinks(p.body);
+    const fmSet = new Set(p.frontmatter.links);
+    const expectedSet = new Set(expectedLinks);
+    const missingInFm = expectedLinks.filter(l => !fmSet.has(l));
+    const extraInFm = p.frontmatter.links.filter(l => !expectedSet.has(l));
+    if (missingInFm.length > 0 || extraInFm.length > 0) {
+      issues.push({
+        severity: "warning",
+        category: "link-sync",
+        page: `${p.category}/${p.slug}`,
+        message: `frontmatter.links out of sync with body [[wikilinks]]`,
+        autoFixable: true,
+      });
+    }
+  }
+  return issues;
+}
+
+/** 12. Tag health: spaces, scope duplicates, non-canonical tags */
+function checkTagHealth(pages: WikiPage[]): LintIssue[] {
+  const issues: LintIssue[] = [];
+  for (const p of pages) {
+    const tags = p.frontmatter.tags;
+    const scope = p.frontmatter.scope;
+    const scopeSet = new Set(scope.map(s => s.toLowerCase()));
+
+    // Check for tags with spaces
+    const spaceTags = tags.filter(t => t.includes(" "));
+    if (spaceTags.length > 0) {
+      issues.push({
+        severity: "warning",
+        category: "tag-health",
+        page: `${p.category}/${p.slug}`,
+        message: `Tags with spaces: ${spaceTags.map(t => `"${t}"`).join(", ")}`,
+        autoFixable: true,
+      });
+    }
+
+    // Check for tags duplicating scope
+    const scopeDupes = tags.filter(t => scopeSet.has(t.toLowerCase()));
+    if (scopeDupes.length > 0) {
+      issues.push({
+        severity: "info",
+        category: "tag-health",
+        page: `${p.category}/${p.slug}`,
+        message: `Tags duplicating scope: ${scopeDupes.join(", ")}`,
+        autoFixable: true,
+      });
+    }
+
+    // Check if normalization would change the tag list
+    const normalized = normalizeTags(tags, scope);
+    const currentSorted = [...tags].sort();
+    if (JSON.stringify(normalized) !== JSON.stringify(currentSorted)) {
+      // Only report if not already covered by the above checks
+      const aliasChanges = tags.filter(t => {
+        const n = t.trim().toLowerCase().replace(/\s+/g, "-");
+        return normalized.includes(n) === false && !scopeSet.has(n) && !t.includes(" ");
+      });
+      if (aliasChanges.length > 0) {
+        issues.push({
+          severity: "info",
+          category: "tag-health",
+          page: `${p.category}/${p.slug}`,
+          message: `Tags to canonicalize: ${aliasChanges.join(", ")}`,
+          autoFixable: true,
+        });
+      }
+    }
+  }
+  return issues;
+}
+
+/** 13. Secrets: detect API keys, tokens, passwords in page content */
+function checkSecrets(pages: WikiPage[]): LintIssue[] {
+  const issues: LintIssue[] = [];
+  for (const p of pages) {
+    if (containsSecrets(p.body)) {
+      issues.push({
+        severity: "error",
+        category: "secrets",
+        page: `${p.category}/${p.slug}`,
+        message: `Page contains potential secrets (API keys, tokens, passwords)`,
+        autoFixable: true,
+      });
+    }
+  }
+  return issues;
+}
+
+/** 14. PARA category misuse: reference docs in projects/ instead of resources/ */
+function checkCategoryMisuse(pages: WikiPage[]): LintIssue[] {
+  const issues: LintIssue[] = [];
+
+  // projects/ should have goal-defined work with end dates, not reference docs.
+  // Heuristic: if a projects/ page's slug contains a scope project name as prefix
+  // (e.g. "pi-para-daemon" in scope "pi-para"), it's likely a sub-topic reference
+  // doc, not a standalone project.
+  for (const p of pages) {
+    if (p.category !== "projects") continue;
+
+    // Check if the slug is a sub-topic of a scope value
+    // e.g. slug "pi-para-daemon" with scope ["pi-para"] → sub-topic
+    const isSubtopic = p.frontmatter.scope.some(
+      (s) => s !== p.slug && s !== "global" && p.slug.startsWith(s + "-"),
+    );
+
+    if (isSubtopic) {
+      issues.push({
+        severity: "warning",
+        category: "category-misuse",
+        page: `${p.category}/${p.slug}`,
+        message: `Likely a reference doc, not a project — slug "${p.slug}" is a sub-topic of scope [${p.frontmatter.scope.join(", ")}]. Consider moving to resources/.`,
+        autoFixable: false,
+      });
+    }
+  }
+
+  return issues;
+}
+
 // -- Auto-fix ---------------------------------------------------------------
+
+/** Fix secrets: redact API keys, tokens, passwords from page content */
+async function fixSecrets(
+  wikiDir: string,
+  pages: WikiPage[],
+): Promise<LintIssue[]> {
+  const fixed: LintIssue[] = [];
+  for (const p of pages) {
+    if (!containsSecrets(p.body)) continue;
+
+    const { text: redacted, redactions } = redactSecrets(p.body);
+    if (redactions > 0) {
+      const fixedPage: WikiPage = {
+        ...p,
+        body: redacted,
+        frontmatter: {
+          ...p.frontmatter,
+          updated: new Date().toISOString(),
+        },
+      };
+      await writePage(wikiDir, fixedPage);
+
+      fixed.push({
+        severity: "error",
+        category: "secrets",
+        page: `${p.category}/${p.slug}`,
+        message: `Fixed: redacted ${redactions} secret(s)`,
+        autoFixable: true,
+      });
+    }
+  }
+  return fixed;
+}
+
+/** Fix link sync: auto-link slug mentions and sync frontmatter.links */
+async function fixLinkSync(
+  wikiDir: string,
+  pages: WikiPage[],
+  allSlugs: Set<string>,
+): Promise<LintIssue[]> {
+  const fixed: LintIssue[] = [];
+  for (const p of pages) {
+    const originalBody = p.body;
+    const originalLinks = [...p.frontmatter.links];
+
+    // Auto-link slug mentions
+    const newBody = autoLinkSlugs(p.body, allSlugs, p.slug);
+
+    // Sync frontmatter.links
+    const newLinks = syncFrontmatterLinks(newBody);
+
+    // Check if anything changed
+    const bodyChanged = newBody !== originalBody;
+    const linksChanged = JSON.stringify(newLinks.sort()) !== JSON.stringify(originalLinks.sort());
+
+    if (bodyChanged || linksChanged) {
+      const addedLinks = newLinks.filter(l => !originalLinks.includes(l));
+
+      const fixedPage: WikiPage = {
+        ...p,
+        body: newBody,
+        frontmatter: {
+          ...p.frontmatter,
+          links: newLinks,
+          updated: new Date().toISOString(),
+        },
+      };
+      await writePage(wikiDir, fixedPage);
+
+      if (addedLinks.length > 0) {
+        fixed.push({
+          severity: "warning",
+          category: "link-sync",
+          page: `${p.category}/${p.slug}`,
+          message: `Fixed: auto-linked ${addedLinks.length} slug(s): ${addedLinks.join(", ")}`,
+          autoFixable: true,
+        });
+      }
+      if (linksChanged && addedLinks.length === 0) {
+        fixed.push({
+          severity: "warning",
+          category: "link-sync",
+          page: `${p.category}/${p.slug}`,
+          message: `Fixed: synced frontmatter.links with body [[wikilinks]]`,
+          autoFixable: true,
+        });
+      }
+    }
+  }
+  return fixed;
+}
+
+/** Fix tag health: normalize all tags via registry */
+async function fixTagHealth(
+  wikiDir: string,
+  pages: WikiPage[],
+): Promise<LintIssue[]> {
+  const fixed: LintIssue[] = [];
+  for (const p of pages) {
+    const original = [...p.frontmatter.tags];
+    const normalized = normalizeTags(p.frontmatter.tags, p.frontmatter.scope);
+
+    if (JSON.stringify(original.sort()) !== JSON.stringify(normalized)) {
+      const removed = original.filter(t => !normalized.includes(t.trim().toLowerCase().replace(/\s+/g, "-")));
+
+      p.frontmatter.tags = normalized;
+      p.frontmatter.updated = new Date().toISOString();
+      await writePage(wikiDir, p);
+
+      fixed.push({
+        severity: "warning",
+        category: "tag-health",
+        page: `${p.category}/${p.slug}`,
+        message: `Fixed: normalized tags [${original.join(", ")}] → [${normalized.join(", ")}]`,
+        autoFixable: true,
+      });
+    }
+  }
+  return fixed;
+}
 
 /** Fix broken links: remove [[broken]] from body and frontmatter.links */
 async function fixBrokenLinks(
@@ -642,12 +905,20 @@ export async function lintWiki(
     ...checkFrontmatter(pages),
     ...checkIndexDrift(pages, indexContent),
     ...checkDuplicateSlugs(pages),
+    ...checkLinkSync(pages, allSlugs),
+    ...checkTagHealth(pages),
+    ...checkCategoryMisuse(pages),
+    ...checkSecrets(pages),
   ];
 
   // Auto-fix if enabled
   const fixed: LintIssue[] = [];
   if (autoFix) {
+    // Fix secrets first — highest priority
+    fixed.push(...(await fixSecrets(wikiDir, pages)));
     fixed.push(...(await fixBrokenLinks(wikiDir, pages, allSlugs)));
+    fixed.push(...(await fixLinkSync(wikiDir, pages, allSlugs)));
+    fixed.push(...(await fixTagHealth(wikiDir, pages)));
     fixed.push(...(await fixIndexDrift(wikiDir, pages, indexContent)));
     fixed.push(...(await fixFrontmatter(wikiDir, pages)));
     fixed.push(...(await fixScopeDrift(wikiDir, pages)));

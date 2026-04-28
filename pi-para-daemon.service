@@ -5,12 +5,12 @@ After=network.target
 [Service]
 Type=simple
 User=%i
-WorkingDirectory=/home/%i/projects/pi-para
-ExecStart=/home/%i/.local/share/mise/installs/node/22.22.0/bin/npx tsx src/cli.ts start
+# Use login shell to inherit the user's PATH (picks up mise, nvm, fnm, volta, or system node).
+# -l sources ~/.profile / ~/.bash_profile which set up node version managers.
+ExecStart=/bin/bash -lc 'exec npx pi-para-daemon start'
 Restart=on-failure
 RestartSec=10
 Environment=HOME=/home/%i
-Environment=PATH=/home/%i/.local/share/mise/installs/node/22.22.0/bin:/home/%i/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=multi-user.target
