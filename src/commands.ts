@@ -409,6 +409,7 @@ export function registerCommands(
           `[Search]  Limit: ${config.searchLimit ?? 10}`,
           `[Lint]    Auto-fix: ${config.lintAutoFix ?? true}, Stale days: ${config.lintStaleDays ?? 90}`,
           `[Daemon]  Model: ${config.daemonModel ?? "auto"}`,
+          `[WebWiki] ${(config as any).webWiki?.enabled ? `Enabled at http://${(config as any).webWiki?.host ?? "0.0.0.0"}:${(config as any).webWiki?.port ?? 10973}` : "Disabled"}`,
           `[Embed]   ${providers.embed?.model ?? "not configured"} ${providers.embed?.url ? "at " + providers.embed.url : ""}`,
           `[Chat]    ${providers.chat?.model ?? "not configured"} ${providers.chat?.url ? "at " + providers.chat.url : ""}`,
           `[Rerank]  ${providers.rerank?.model ?? "not configured"} ${providers.rerank?.url ? "at " + providers.rerank.url : ""}`,
@@ -457,6 +458,51 @@ export function registerCommands(
           config.daemonModel = val?.trim() || null;
           await writeFileAsync(configPath, JSON.stringify(config, null, 2));
           ctx.ui.notify(`Set daemonModel = ${config.daemonModel ?? "auto"}`, "info");
+        } else if (choice.startsWith("[WebWiki]")) {
+          const webWiki = (config as any).webWiki ?? { enabled: false, host: "0.0.0.0", port: 10973 };
+          const sub = await ctx.ui.select("Web Wiki Settings", [
+            `Enabled: ${webWiki.enabled}`,
+            `Host: ${webWiki.host}`,
+            `Port: ${webWiki.port}`,
+          ]);
+          if (sub?.startsWith("Enabled")) {
+            webWiki.enabled = !webWiki.enabled;
+            (config as any).webWiki = webWiki;
+            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+            if (webWiki.enabled) {
+              // Detect LAN IP
+              const { networkInterfaces } = await import("node:os");
+              const nets = networkInterfaces();
+              let lanIp = webWiki.host;
+              for (const ifaces of Object.values(nets)) {
+                for (const iface of ifaces ?? []) {
+                  if (iface.family === "IPv4" && !iface.internal) {
+                    lanIp = iface.address;
+                    break;
+                  }
+                }
+              }
+              ctx.ui.notify(`Web Wiki enabled at http://${lanIp}:${webWiki.port}\nRestart pi to apply.`, "info");
+            } else {
+              ctx.ui.notify("Web Wiki disabled. Restart pi to apply.", "info");
+            }
+          } else if (sub?.startsWith("Host")) {
+            const val = await ctx.ui.input("Host (0.0.0.0 for LAN, 127.0.0.1 for local only):", webWiki.host);
+            if (val) {
+              webWiki.host = val;
+              (config as any).webWiki = webWiki;
+              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+              ctx.ui.notify(`Set webWiki.host = ${webWiki.host}`, "info");
+            }
+          } else if (sub?.startsWith("Port")) {
+            const val = await ctx.ui.input("Port:", String(webWiki.port));
+            if (val) {
+              webWiki.port = parseInt(val) || 10973;
+              (config as any).webWiki = webWiki;
+              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+              ctx.ui.notify(`Set webWiki.port = ${webWiki.port}`, "info");
+            }
+          }
         } else if (choice.startsWith("[Embed]") || choice.startsWith("[Chat]") || choice.startsWith("[Rerank]")) {
           const providerType = choice.startsWith("[Embed]") ? "embed" : choice.startsWith("[Chat]") ? "chat" : "rerank";
           const current = providers[providerType] ?? {};

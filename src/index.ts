@@ -49,6 +49,12 @@ interface ParaConfig {
   /** Daemon LLM: "provider/model-id" (e.g. "anthropic/claude-sonnet-4").
    *  If not set, daemon auto-detects from pi env keys or qmd config. */
   daemonModel: string | null;
+  /** Web wiki UI settings */
+  webWiki: {
+    enabled: boolean;
+    host: string;
+    port: number;
+  };
 }
 
 function getDefaultConfig(): ParaConfig {
@@ -62,6 +68,11 @@ function getDefaultConfig(): ParaConfig {
     searchLimit: 10,
     searchIncludeArchives: false,
     daemonModel: null,
+    webWiki: {
+      enabled: false,
+      host: "0.0.0.0",
+      port: 10973,
+    },
   };
 }
 
