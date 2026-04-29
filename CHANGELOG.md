@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.4.0] — 2026-04-29
+
+### Added
+- **Schema versioning & migration** — future-proof wiki format evolution
+  - `schemaVersion` integer field in frontmatter (defaults to 1 for existing pages)
+  - Migration registry in `frontmatter.ts` — chain of `from→to` transforms
+  - `migrateToLatest()` applies all pending migrations sequentially
+  - `wiki_migrate` tool (LLM-callable) for batch migration
+  - `/wiki-migrate` command — migrates all pages, reports count
+  - Lint check #15: `schema-version` — flags pages below current version, auto-fixes
+- **qmd graph-boosted search** (requires @picassio/qmd 2.3.0)
+  - `document_links` edge table tracks `[[wikilinks]]` between pages
+  - 1-hop graph expansion after BM25 search — surfaces wikilink-connected pages
+  - `graphBoost: true` in `searchWiki()` — related pages appear in results even without text match
+  - `extractWikilinks()` exported from qmd for reuse
+- **Scale resilience** — tested for 500+ page wikis
+  - Code-generated `index.md` via `rebuildIndex()` — deterministic, no LLM generation needed
+  - Tiered context injection — max 40 scope-filtered pages in system prompt, rest via `wiki_query`
+  - Page summary cache in SQLite — `buildContext()` reads cache instead of N disk reads
+  - Web UI pagination — `?page=N&limit=50` on `/api/pages`, `?maxNodes=100` on graph endpoint
+- **PARA project lifecycle**
+  - `/wiki-project <name> <goal>` — creates structured project page with goal, status checklist, end condition
+  - `/wiki-project done <name>` — archives completed project
+  - Maintenance agent reviews projects for completion signals, suggests archiving
+  - Maintenance agent updates areas with latest health metrics
+- **PARA active skill** (`skills/para/SKILL.md`)
+  - Behavioral guidelines for actively using wiki during work (not just passive capture)
+  - Covers: consult before planning, write during work, search when debugging, check conventions when reviewing
+  - PARA category decision guide — when to use projects/ vs areas/ vs resources/
+
+### Changed
+- `wiki_write` no longer accepts `indexContent` — index is auto-rebuilt from disk after every write
+- `wiki_move` auto-rebuilds index after moving pages
+- Capture and ingest prompts no longer instruct LLM to generate index
+- Context injection sorts pages by recency, caps at 40 pages with overflow note
+
+### Dependencies
+- Requires @picassio/qmd ≥2.3.0 (graph boost support)
+
 ## [0.3.2] — 2026-04-29
 
 ### Added

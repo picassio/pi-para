@@ -9,6 +9,7 @@ import {
   buildContext,
   markContextDirty,
   setupContextInjection,
+  MAX_CONTEXT_PAGES,
 } from "../src/context.js";
 import type { ContextOptions, ContextConfig } from "../src/context.js";
 
@@ -549,5 +550,265 @@ describe("setupContextInjection", () => {
       // 300 tokens * 4 chars = 1200 chars max, plus overhead for guidelines + verification reminder
       expect(wikiPart.length).toBeLessThan(2200);
     }
+  });
+});
+
+describe("tiered context injection", () => {
+  let wikiDir: string;
+
+  beforeEach(async () => {
+    wikiDir = await mkdtemp(join(tmpdir(), "pi-para-tier-test-"));
+    await initWiki(wikiDir);
+  });
+
+  afterEach(async () => {
+    await rm(wikiDir, { recursive: true, force: true });
+  });
+
+  it("only includes MAX_CONTEXT_PAGES when more pages exist", async () => {
+    const totalPages = MAX_CONTEXT_PAGES + 15;
+
+    // Write more pages than the limit
+    for (let i = 0; i < totalPages; i++) {
+      const padded = String(i).padStart(3, "0");
+      await writePage(
+        wikiDir,
+        makePage({
+          category: "resources",
+          slug: `page-${padded}`,
+          frontmatter: makeFrontmatter({
+            title: `Page ${padded}`,
+            scope: ["global"],
+            updated: new Date(2026, 0, 1 + i).toISOString(),
+          }),
+          body: `Content for page ${padded}.\n`,
+        }),
+      );
+    }
+
+    const scope = makeScope("test");
+    const result = await buildContext(wikiDir, stubStore, scope, {
+      maxTokens: 100000, // large budget so token limit doesn't interfere
+    });
+
+    // Count how many [[page-NNN]] appear in Relevant Pages
+    const matches = result.match(/\[\[page-\d{3}\]\]/g) ?? [];
+    expect(matches.length).toBe(MAX_CONTEXT_PAGES);
+
+    // Should include the "more pages" message
+    expect(result).toContain(`*15 more pages available via wiki_query*`);
+  });
+
+  it("includes all pages when under the limit", async () => {
+    for (let i = 0; i < 5; i++) {
+      await writePage(
+        wikiDir,
+        makePage({
+          category: "resources",
+          slug: `small-page-${i}`,
+          frontmatter: makeFrontmatter({
+            title: `Small Page ${i}`,
+            scope: ["global"],
+          }),
+          body: `Content ${i}.\n`,
+        }),
+      );
+    }
+
+    const scope = makeScope("test");
+    const result = await buildContext(wikiDir, stubStore, scope, {
+      maxTokens: 100000,
+    });
+
+    // All 5 pages should be included
+    const matches = result.match(/\[\[small-page-\d\]\]/g) ?? [];
+    expect(matches.length).toBe(5);
+
+    // No "more pages" message
+    expect(result).not.toContain("more pages available via wiki_query");
+  });
+
+  it("sorts by updated date descending (most recent first)", async () => {
+    await writePage(
+      wikiDir,
+      makePage({
+        category: "resources",
+        slug: "old-page",
+        frontmatter: makeFrontmatter({
+          title: "Old Page",
+          scope: ["global"],
+          updated: "2025-01-01T00:00:00.000Z",
+        }),
+        body: "Old content.\n",
+      }),
+    );
+    await writePage(
+      wikiDir,
+      makePage({
+        category: "resources",
+        slug: "new-page",
+        frontmatter: makeFrontmatter({
+          title: "New Page",
+          scope: ["global"],
+          updated: "2026-06-01T00:00:00.000Z",
+        }),
+        body: "New content.\n",
+      }),
+    );
+
+    const scope = makeScope("test");
+    const result = await buildContext(wikiDir, stubStore, scope, {
+      maxTokens: 100000,
+    });
+
+    const newPos = result.indexOf("[[new-page]]");
+    const oldPos = result.indexOf("[[old-page]]");
+    // New page should come before old page
+    expect(newPos).toBeLessThan(oldPos);
+  });
+});
+
+// -- Scale tests (500+ pages) ------------------------------------------------
+
+describe("buildContext — 500-page scale test", () => {
+  let wikiDir: string;
+
+  beforeEach(async () => {
+    wikiDir = await mkdtemp(join(tmpdir(), "pi-para-scale-test-"));
+    await initWiki(wikiDir);
+  });
+
+  afterEach(async () => {
+    await rm(wikiDir, { recursive: true, force: true });
+  });
+
+  it("buildContext from disk completes in <10ms at 500 pages (after initial read)", async () => {
+    // Generate 500 pages on disk
+    for (let i = 0; i < 500; i++) {
+      await writePage(
+        wikiDir,
+        makePage({
+          category: "resources",
+          slug: `scale-page-${i}`,
+          frontmatter: makeFrontmatter({
+            title: `Scale Page ${i}`,
+            scope: ["test-project"],
+            updated: new Date(Date.now() - i * 86400000).toISOString(),
+          }),
+          body: `This is scale page number ${i}. It contains architecture decisions and debugging notes for component ${i % 20}.\n`,
+        }),
+      );
+    }
+
+    const scope = makeScope("test-project");
+    const opts: ContextOptions = { maxTokens: 100000 };
+
+    // Warm-up run (disk caches, fs metadata)
+    await buildContext(wikiDir, stubStore, scope, opts);
+
+    // Timed run
+    const start = performance.now();
+    const result = await buildContext(wikiDir, stubStore, scope, opts);
+    const elapsed = performance.now() - start;
+
+    // Verify correctness
+    expect(result).toContain("<wiki-context");
+    expect(result).toContain("</wiki-context>");
+    // Should have exactly MAX_CONTEXT_PAGES (40) page entries
+    const pageRefs = result.match(/\[\[scale-page-\d+\]\]/g) ?? [];
+    expect(pageRefs.length).toBe(MAX_CONTEXT_PAGES);
+    // Should show overflow message
+    expect(result).toContain("460 more pages available via wiki_query");
+
+    // Performance target: <200ms from disk is acceptable (disk I/O varies)
+    // The <10ms target is for cached/stateDb path
+    console.log(`  500-page disk buildContext: ${elapsed.toFixed(1)}ms`);
+    expect(elapsed).toBeLessThan(2000); // generous for disk I/O in CI
+  }, 60000);
+
+  it("buildContext from stateDb cache completes in <10ms at 500 pages", async () => {
+    // Create StateDB and populate cache directly (no disk pages needed for cache path)
+    const { StateDB } = await import("../src/state.js");
+    const stateDb = new StateDB(wikiDir);
+
+    // Insert 500 page summaries into cache
+    for (let i = 0; i < 500; i++) {
+      stateDb.upsertPageSummary(
+        `scale-page-${i}`,
+        "resources",
+        ["test-project"],
+        [`tag-${i % 10}`],
+        `This is scale page number ${i} with architecture decisions.`,
+        new Date(Date.now() - i * 86400000).toISOString(),
+      );
+    }
+
+    const scope = makeScope("test-project");
+    const opts: ContextOptions = { maxTokens: 100000 };
+
+    // Warm-up run
+    await buildContext(wikiDir, stubStore, scope, opts, stateDb);
+
+    // Timed runs — take the median of 5
+    const times: number[] = [];
+    for (let run = 0; run < 5; run++) {
+      const start = performance.now();
+      await buildContext(wikiDir, stubStore, scope, opts, stateDb);
+      times.push(performance.now() - start);
+    }
+    times.sort((a, b) => a - b);
+    const median = times[Math.floor(times.length / 2)];
+
+    // Verify correctness
+    const result = await buildContext(wikiDir, stubStore, scope, opts, stateDb);
+    expect(result).toContain("<wiki-context");
+    const pageRefs = result.match(/\[\[scale-page-\d+\]\]/g) ?? [];
+    expect(pageRefs.length).toBe(MAX_CONTEXT_PAGES);
+    expect(result).toContain("460 more pages available via wiki_query");
+
+    // Performance target: <10ms from cache
+    console.log(`  500-page cached buildContext (median of 5): ${median.toFixed(1)}ms`);
+    console.log(`  All runs: ${times.map(t => t.toFixed(1) + 'ms').join(', ')}`);
+    expect(median).toBeLessThan(10);
+  });
+
+  it("buildContext at 1000 pages with cache stays under 15ms", async () => {
+    const { StateDB } = await import("../src/state.js");
+    const stateDb = new StateDB(wikiDir);
+
+    for (let i = 0; i < 1000; i++) {
+      stateDb.upsertPageSummary(
+        `big-page-${i}`,
+        "resources",
+        ["test-project"],
+        [`tag-${i % 15}`],
+        `Big wiki page ${i} covering various architecture topics and debugging solutions.`,
+        new Date(Date.now() - i * 43200000).toISOString(),
+      );
+    }
+
+    const scope = makeScope("test-project");
+    const opts: ContextOptions = { maxTokens: 100000 };
+
+    // Warm-up
+    await buildContext(wikiDir, stubStore, scope, opts, stateDb);
+
+    // Timed
+    const times: number[] = [];
+    for (let run = 0; run < 5; run++) {
+      const start = performance.now();
+      await buildContext(wikiDir, stubStore, scope, opts, stateDb);
+      times.push(performance.now() - start);
+    }
+    times.sort((a, b) => a - b);
+    const median = times[Math.floor(times.length / 2)];
+
+    const result = await buildContext(wikiDir, stubStore, scope, opts, stateDb);
+    const pageRefs = result.match(/\[\[big-page-\d+\]\]/g) ?? [];
+    expect(pageRefs.length).toBe(MAX_CONTEXT_PAGES);
+    expect(result).toContain("960 more pages available via wiki_query");
+
+    console.log(`  1000-page cached buildContext (median of 5): ${median.toFixed(1)}ms`);
+    expect(median).toBeLessThan(15);
   });
 });

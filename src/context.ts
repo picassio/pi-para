@@ -16,6 +16,7 @@ import type {
   BeforeAgentStartEventResult,
 } from "@mariozechner/pi-coding-agent";
 import type { ProjectScope } from "./scope.js";
+import type { StateDB, PageSummary } from "./state.js";
 import { readIndex, readSchema, listPages, readPage } from "./wiki.js";
 import { matchesScope } from "./scope.js";
 import { formatFreshness } from "./query.js";
@@ -40,6 +41,9 @@ export interface ContextConfig {
 
 const DEFAULT_MAX_TOKENS = 4000;
 const CHARS_PER_TOKEN = 4;
+
+/** Maximum number of pages to include in context injection. */
+export const MAX_CONTEXT_PAGES = 40;
 
 // -- Schema summary ----------------------------------------------------------
 
@@ -85,6 +89,7 @@ export async function buildContext(
   _store: QMDStore,
   scope: ProjectScope,
   options?: ContextOptions,
+  stateDb?: StateDB,
 ): Promise<string> {
   const maxTokens = options?.maxTokens ?? DEFAULT_MAX_TOKENS;
   const includeSchema = options?.includeSchema ?? true;
@@ -142,49 +147,55 @@ export async function buildContext(
 
   // 3. Scope-filtered page summaries
   if (includeSummaries && usedChars < maxChars) {
-    const pages = await listPages(wikiDir);
-    const scopePages = pages.filter((ref) => {
-      // We need page frontmatter to check scope — but listPages already reads it.
-      // However, we need the frontmatter scope. listPages returns PageRef which
-      // doesn't include scope. Read each matching page.
-      // For efficiency, we only read pages once and filter below.
-      return true;
+    // Use stateDb cache if available, otherwise fall back to disk reads
+    const scopeEntries = stateDb
+      ? await buildScopeEntriesFromCache(stateDb, scope)
+      : await buildScopeEntriesFromDisk(wikiDir, scope);
+
+    // Sort by updated date descending (most recent first)
+    scopeEntries.sort((a, b) => {
+      const dateA = new Date(a.updatedAt).getTime() || 0;
+      const dateB = new Date(b.updatedAt).getTime() || 0;
+      return dateB - dateA;
     });
+
+    const totalScopePages = scopeEntries.length;
+
+    // Tier: only include top MAX_CONTEXT_PAGES
+    const tieredEntries = scopeEntries.slice(0, MAX_CONTEXT_PAGES);
+    const remaining = totalScopePages - tieredEntries.length;
 
     const summaryParts: string[] = [];
     const titleFallbacks: string[] = [];
-    const now = Date.now();
 
-    for (const ref of scopePages) {
-      const page = await readPage(wikiDir, ref.category, ref.slug);
-      if (!page) continue;
+    for (const entry of tieredEntries) {
+      const summaryLine = `- **[[${entry.slug}]]** (${entry.category}): ${entry.firstParagraph}`;
+      const titleLine = `- [[${entry.slug}]] (${entry.category})`;
 
-      // Scope filter
-      if (!matchesScope(page.frontmatter.scope, scope)) continue;
+      titleFallbacks.push(titleLine);
 
-      // Extract first paragraph as summary
-      const firstPara = extractFirstParagraph(page.body);
-      const entry = `- **[[${ref.slug}]]** (${ref.category}): ${firstPara}`;
-      const titleEntry = `- [[${ref.slug}]] (${ref.category})`;
-
-      titleFallbacks.push(titleEntry);
-
-      if (usedChars + entry.length + 2 <= maxChars) {
-        summaryParts.push(entry);
-        usedChars += entry.length + 1; // +1 for newline between entries
+      if (usedChars + summaryLine.length + 2 <= maxChars) {
+        summaryParts.push(summaryLine);
+        usedChars += summaryLine.length + 1;
       }
     }
 
     if (summaryParts.length > 0) {
-      const summaryBlock =
+      let summaryBlock =
         "## Relevant Pages\n\n" + summaryParts.join("\n");
+      if (remaining > 0) {
+        summaryBlock += `\n\n*${remaining} more pages available via wiki_query*`;
+      }
       parts.push(summaryBlock);
     } else if (titleFallbacks.length > 0) {
       // Budget exceeded for summaries — try titles only
-      const titlesBlock =
+      let titlesBlock =
         "## Relevant Pages (titles only)\n\n" + titleFallbacks.join("\n");
-      const remaining = maxChars - usedChars;
-      if (titlesBlock.length <= remaining) {
+      if (remaining > 0) {
+        titlesBlock += `\n\n*${remaining} more pages available via wiki_query*`;
+      }
+      const availableChars = maxChars - usedChars;
+      if (titlesBlock.length <= availableChars) {
         parts.push(titlesBlock);
       }
     }
@@ -299,11 +310,56 @@ export function setupContextInjection(
 
 // -- Helpers -----------------------------------------------------------------
 
+interface ScopeEntry {
+  slug: string;
+  category: string;
+  firstParagraph: string;
+  updatedAt: string;
+}
+
+/** Build scope entries from the StateDB page summary cache. */
+async function buildScopeEntriesFromCache(
+  stateDb: StateDB,
+  scope: ProjectScope,
+): Promise<ScopeEntry[]> {
+  const summaries = stateDb.getPageSummaries(scope);
+  return summaries.map((s) => ({
+    slug: s.slug,
+    category: s.category,
+    firstParagraph: s.firstParagraph || "(no summary)",
+    updatedAt: s.updatedAt,
+  }));
+}
+
+/** Build scope entries by reading all pages from disk. */
+async function buildScopeEntriesFromDisk(
+  wikiDir: string,
+  scope: ProjectScope,
+): Promise<ScopeEntry[]> {
+  const pages = await listPages(wikiDir);
+  const entries: ScopeEntry[] = [];
+
+  for (const ref of pages) {
+    const page = await readPage(wikiDir, ref.category, ref.slug);
+    if (!page) continue;
+    if (!matchesScope(page.frontmatter.scope, scope)) continue;
+
+    entries.push({
+      slug: ref.slug,
+      category: ref.category,
+      firstParagraph: extractFirstParagraph(page.body),
+      updatedAt: page.frontmatter.updated,
+    });
+  }
+
+  return entries;
+}
+
 /**
  * Extract the first non-empty paragraph from a markdown body.
  * Skips headings and blank lines. Returns a single line.
  */
-function extractFirstParagraph(body: string): string {
+export function extractFirstParagraph(body: string): string {
   const lines = body.split("\n");
   const paragraphLines: string[] = [];
   let inParagraph = false;

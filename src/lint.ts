@@ -28,6 +28,12 @@ import {
 } from "./link-utils.js";
 import { normalizeTags, normalizeScopes } from "./tag-registry.js";
 import { containsSecrets, redactSecrets } from "./redact.js";
+import {
+  CURRENT_SCHEMA_VERSION,
+  migrateToLatest,
+  parseFrontmatter,
+  serializeFrontmatter,
+} from "./frontmatter.js";
 
 // -- Types ------------------------------------------------------------------
 
@@ -527,6 +533,24 @@ function checkSecrets(pages: WikiPage[]): LintIssue[] {
   return issues;
 }
 
+/** 15. Schema version: pages below CURRENT_SCHEMA_VERSION need migration */
+function checkSchemaVersion(pages: WikiPage[]): LintIssue[] {
+  const issues: LintIssue[] = [];
+  for (const p of pages) {
+    const version = p.frontmatter.schemaVersion ?? 1;
+    if (version < CURRENT_SCHEMA_VERSION) {
+      issues.push({
+        severity: "warning",
+        category: "schema-version",
+        page: `${p.category}/${p.slug}`,
+        message: `Schema version ${version} is below current (${CURRENT_SCHEMA_VERSION}) — needs migration`,
+        autoFixable: true,
+      });
+    }
+  }
+  return issues;
+}
+
 /** 14. PARA category misuse: reference docs in projects/ instead of resources/ */
 function checkCategoryMisuse(pages: WikiPage[]): LintIssue[] {
   const issues: LintIssue[] = [];
@@ -831,6 +855,45 @@ async function fixFrontmatter(
   return fixed;
 }
 
+/** Fix schema version: run migrations on pages below current version */
+async function fixSchemaVersion(
+  wikiDir: string,
+  pages: WikiPage[],
+): Promise<LintIssue[]> {
+  const fixed: LintIssue[] = [];
+  for (const p of pages) {
+    const version = p.frontmatter.schemaVersion ?? 1;
+    if (version >= CURRENT_SCHEMA_VERSION) continue;
+
+    // Read the raw file to get the original frontmatter as a plain object
+    const filePath = join(wikiDir, p.category, `${p.slug}.md`);
+    const content = await readFile(filePath, "utf-8");
+    const { frontmatter: rawFm, body: rawBody } = parseFrontmatter(content);
+    const rawObj = rawFm as unknown as Record<string, unknown>;
+
+    const result = migrateToLatest(rawObj, rawBody);
+
+    // Write back with migrated content
+    const migratedFm = result.fm as unknown as import("./wiki.js").PageFrontmatter;
+    migratedFm.updated = new Date().toISOString();
+    await writePage(wikiDir, {
+      category: p.category,
+      slug: p.slug,
+      frontmatter: migratedFm,
+      body: result.body,
+    });
+
+    fixed.push({
+      severity: "warning",
+      category: "schema-version",
+      page: `${p.category}/${p.slug}`,
+      message: `Fixed: migrated schema version ${version} → ${migratedFm.schemaVersion}`,
+      autoFixable: true,
+    });
+  }
+  return fixed;
+}
+
 /** Fix scope drift: add slug to projects/ page scope */
 async function fixScopeDrift(
   wikiDir: string,
@@ -909,6 +972,7 @@ export async function lintWiki(
     ...checkTagHealth(pages),
     ...checkCategoryMisuse(pages),
     ...checkSecrets(pages),
+    ...checkSchemaVersion(pages),
   ];
 
   // Auto-fix if enabled
@@ -922,6 +986,7 @@ export async function lintWiki(
     fixed.push(...(await fixIndexDrift(wikiDir, pages, indexContent)));
     fixed.push(...(await fixFrontmatter(wikiDir, pages)));
     fixed.push(...(await fixScopeDrift(wikiDir, pages)));
+    fixed.push(...(await fixSchemaVersion(wikiDir, pages)));
   }
 
   // Recount broken links for stats

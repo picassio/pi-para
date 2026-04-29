@@ -209,31 +209,66 @@ function parseLogEntries(content: string): ParsedLogEntry[] {
 
 async function handleListPages(
   wikiDir: string,
+  url: URL,
   _req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
   const refs = await listPages(wikiDir);
 
-  // Group by category, include scope for filtering
-  const grouped: Record<ParaCategory, Array<{ slug: string; title: string; path: string; scope: string[]; tags: string[] }>> = {
-    projects: [],
-    areas: [],
-    resources: [],
-    archives: [],
-  };
+  // Build flat list with metadata
+  const allPages: Array<{
+    slug: string;
+    title: string;
+    path: string;
+    category: ParaCategory;
+    scope: string[];
+    tags: string[];
+  }> = [];
 
   for (const ref of refs) {
     const page = await readPage(wikiDir, ref.category, ref.slug);
-    grouped[ref.category].push({
+    allPages.push({
       slug: ref.slug,
       title: ref.title,
       path: ref.path,
+      category: ref.category,
       scope: page?.frontmatter.scope ?? [],
       tags: page?.frontmatter.tags ?? [],
     });
   }
 
-  json(res, grouped);
+  const total = allPages.length;
+  const rawPage = url.searchParams.get("page");
+  const rawLimit = url.searchParams.get("limit");
+
+  // Default: return grouped by category (what the SPA client expects)
+  if (!rawPage && !rawLimit) {
+    const grouped: Record<string, Array<{ slug: string; title: string; path: string; scope: string[]; tags: string[] }>> = {
+      projects: [],
+      areas: [],
+      resources: [],
+      archives: [],
+    };
+    for (const p of allPages) {
+      grouped[p.category]?.push({ slug: p.slug, title: p.title, path: p.path, scope: p.scope, tags: p.tags });
+    }
+    json(res, grouped);
+    return;
+  }
+
+  const pageParam = parseInt(rawPage ?? "1", 10);
+  const limitParam = parseInt(rawLimit ?? "50", 10);
+  const page = Math.max(1, isNaN(pageParam) ? 1 : pageParam);
+  const limit = Math.max(1, Math.min(500, isNaN(limitParam) ? 50 : limitParam));
+  const start = (page - 1) * limit;
+  const paginatedPages = allPages.slice(start, start + limit);
+
+  json(res, {
+    pages: paginatedPages,
+    total,
+    page,
+    limit,
+  });
 }
 
 async function handleGetPage(
@@ -430,30 +465,30 @@ async function handleSearch(
 
 async function handleGraph(
   wikiDir: string,
+  url: URL,
   _req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  const maxNodesParam = parseInt(url.searchParams.get("maxNodes") ?? "100", 10);
+  const maxNodes = Math.max(1, isNaN(maxNodesParam) ? 100 : maxNodesParam);
+
   const refs = await listPages(wikiDir);
   const slugToRef = new Map<string, PageRef>();
   for (const ref of refs) {
     slugToRef.set(ref.slug, ref);
   }
 
-  const nodes: GraphNode[] = [];
-  const edges: GraphEdge[] = [];
+  // Build all nodes and edges first
+  const allNodes: (GraphNode & { connectionCount: number })[] = [];
+  const allEdges: GraphEdge[] = [];
   const seenEdges = new Set<string>();
+  const connectionCounts = new Map<string, number>();
 
   for (const ref of refs) {
     const page = await readPage(wikiDir, ref.category, ref.slug);
     if (!page) continue;
 
     const nodeId = `${ref.category}/${ref.slug}`;
-    nodes.push({
-      id: nodeId,
-      title: ref.title,
-      category: ref.category,
-      slug: ref.slug,
-    });
 
     // Collect wikilinks from body and frontmatter
     const bodyLinks = extractWikilinks(page.body);
@@ -469,11 +504,41 @@ async function handleGraph(
       if (seenEdges.has(edgeKey)) continue;
       seenEdges.add(edgeKey);
 
-      edges.push({ source: nodeId, target: targetId });
+      allEdges.push({ source: nodeId, target: targetId });
+
+      // Track connection counts for both source and target
+      connectionCounts.set(nodeId, (connectionCounts.get(nodeId) ?? 0) + 1);
+      connectionCounts.set(targetId, (connectionCounts.get(targetId) ?? 0) + 1);
     }
+
+    allNodes.push({
+      id: nodeId,
+      title: ref.title,
+      category: ref.category,
+      slug: ref.slug,
+      connectionCount: 0, // will be filled below
+    });
   }
 
-  json(res, { nodes, edges });
+  // Fill connection counts and sort by most connected
+  for (const node of allNodes) {
+    node.connectionCount = connectionCounts.get(node.id) ?? 0;
+  }
+  allNodes.sort((a, b) => b.connectionCount - a.connectionCount);
+
+  // Take top-N most connected nodes
+  const topNodes = allNodes.slice(0, maxNodes);
+  const topNodeIds = new Set(topNodes.map(n => n.id));
+
+  // Filter edges to only include those between visible nodes
+  const filteredEdges = allEdges.filter(
+    e => topNodeIds.has(e.source) && topNodeIds.has(e.target)
+  );
+
+  // Strip connectionCount from response
+  const nodes: GraphNode[] = topNodes.map(({ connectionCount, ...rest }) => rest);
+
+  json(res, { nodes, edges: filteredEdges });
 }
 
 async function handleLog(
@@ -593,7 +658,7 @@ export function startServer(
 
       // GET /api/pages
       if (method === "GET" && pathname === "/api/pages") {
-        await handleListPages(wikiDir, req, res);
+        await handleListPages(wikiDir, url, req, res);
         return;
       }
 
@@ -606,7 +671,7 @@ export function startServer(
 
       // GET /api/graph
       if (method === "GET" && pathname === "/api/graph") {
-        await handleGraph(wikiDir, req, res);
+        await handleGraph(wikiDir, url, req, res);
         return;
       }
 

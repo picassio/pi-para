@@ -9,6 +9,15 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+export interface PageSummary {
+  slug: string;
+  category: string;
+  scope: string[];
+  tags: string[];
+  firstParagraph: string;
+  updatedAt: string;
+}
+
 export interface ProcessedSession {
   sessionPath: string;
   contentHash: string;
@@ -43,6 +52,14 @@ export class StateDB {
       CREATE TABLE IF NOT EXISTS daemon_state (
         key TEXT PRIMARY KEY,
         value TEXT
+      );
+      CREATE TABLE IF NOT EXISTS page_summaries (
+        slug TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        scope_json TEXT NOT NULL DEFAULT '[]',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        first_paragraph TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
       );
     `);
   }
@@ -148,6 +165,75 @@ export class StateDB {
     this.db
       .prepare("INSERT OR REPLACE INTO daemon_state (key, value) VALUES (?, ?)")
       .run(key, value);
+  }
+
+  /** Upsert a page summary in the cache. */
+  upsertPageSummary(
+    slug: string,
+    category: string,
+    scope: string[],
+    tags: string[],
+    firstParagraph: string,
+    updatedAt: string,
+  ): void {
+    this.db
+      .prepare(`
+        INSERT OR REPLACE INTO page_summaries
+        (slug, category, scope_json, tags_json, first_paragraph, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        slug,
+        category,
+        JSON.stringify(scope),
+        JSON.stringify(tags),
+        firstParagraph,
+        updatedAt,
+      );
+  }
+
+  /** Get all page summaries, optionally filtered by scope. */
+  getPageSummaries(scope?: { name: string; include: string[]; exclude: string[] }): PageSummary[] {
+    const rows = this.db
+      .prepare("SELECT * FROM page_summaries ORDER BY updated_at DESC")
+      .all() as Array<{
+        slug: string;
+        category: string;
+        scope_json: string;
+        tags_json: string;
+        first_paragraph: string;
+        updated_at: string;
+      }>;
+
+    const summaries = rows.map((row) => ({
+      slug: row.slug,
+      category: row.category,
+      scope: JSON.parse(row.scope_json || "[]") as string[],
+      tags: JSON.parse(row.tags_json || "[]") as string[],
+      firstParagraph: row.first_paragraph,
+      updatedAt: row.updated_at,
+    }));
+
+    if (!scope) return summaries;
+
+    // Filter by scope: include global + matching, exclude excluded
+    return summaries.filter((s) => {
+      if (
+        scope.exclude.length > 0 &&
+        s.scope.some((tag) => scope.exclude.includes(tag))
+      ) {
+        return false;
+      }
+      if (s.scope.includes("global")) return true;
+      return s.scope.some((tag) => scope.include.includes(tag));
+    });
+  }
+
+  /** Delete a page summary from the cache. */
+  deletePageSummary(slug: string): void {
+    this.db
+      .prepare("DELETE FROM page_summaries WHERE slug = ?")
+      .run(slug);
   }
 
   close(): void {

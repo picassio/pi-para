@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { initWiki, writePage, listPages, PARA_CATEGORIES, appendLog } from "../src/wiki.js";
+import { initWiki, writePage, readPage, listPages, PARA_CATEGORIES, appendLog } from "../src/wiki.js";
 import type { WikiPage, PageFrontmatter } from "../src/wiki.js";
 import { openStore, closeStore } from "../src/store.js";
 import type { QMDStore } from "../src/store.js";
@@ -403,12 +403,168 @@ describe("commands", () => {
     });
   });
 
-  describe("registerCommands", () => {
-    it("should register all 9 commands", () => {
+  describe("/wiki-project", () => {
+    it("should create a project page with correct structure", async () => {
       const { pi, commands } = createMockPi();
       registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
 
-      expect(commands.size).toBe(9);
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("auth-refactor Refactor auth to use JWT tokens", ctx);
+
+      expect(notifications[0].type).toBe("info");
+      expect(notifications[0].message).toContain("projects/auth-refactor");
+
+      // Verify page was created
+      const page = await readPage(wikiDir, "projects", "auth-refactor");
+      expect(page).not.toBeNull();
+      expect(page!.frontmatter.title).toBe("Auth Refactor");
+      expect(page!.frontmatter.para).toBe("projects");
+      expect(page!.frontmatter.scope).toContain("test-project");
+      expect(page!.body).toContain("## Goal");
+      expect(page!.body).toContain("Refactor auth to use JWT tokens");
+      expect(page!.body).toContain("## Status");
+      expect(page!.body).toContain("- [ ] Define scope and milestones");
+      expect(page!.body).toContain("- [ ] Implementation");
+      expect(page!.body).toContain("- [ ] Verification");
+      expect(page!.body).toContain("## End Condition");
+      expect(page!.body).toContain("Refactor auth to use JWT tokens \u2014 verified and complete.");
+      expect(page!.body).toContain("## Connections");
+    });
+
+    it("should rebuild index after creating a project", async () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx } = createMockCtx();
+      await commands.get("wiki-project")!.handler("my-proj Build the thing", ctx);
+
+      const index = await readFile(join(wikiDir, "index.md"), "utf-8");
+      expect(index).toContain("[[my-proj]]");
+    });
+
+    it("should convert special chars and spaces in name to kebab-case", async () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("My_Cool.Project Do something", ctx);
+
+      expect(notifications[0].type).toBe("info");
+      // my_cool.project -> my-cool-project
+      const page = await readPage(wikiDir, "projects", "my-cool-project");
+      expect(page).not.toBeNull();
+      expect(page!.frontmatter.title).toBe("My Cool Project");
+    });
+
+    it("should show error when no goal is provided", async () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("my-proj", ctx);
+
+      expect(notifications[0].type).toBe("error");
+      expect(notifications[0].message).toContain("Usage");
+    });
+
+    it("should show error when no args provided", async () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("", ctx);
+
+      expect(notifications[0].type).toBe("error");
+      expect(notifications[0].message).toContain("Usage");
+    });
+
+    it("should reject invalid project name with only special chars", async () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("!@#$ Do something", ctx);
+
+      expect(notifications[0].type).toBe("error");
+      expect(notifications[0].message).toContain("Invalid project name");
+    });
+  });
+
+  describe("/wiki-project done", () => {
+    it("should move project to archives", async () => {
+      // First create a project page
+      await writePage(wikiDir, makePage("projects", "auth-refactor", {
+        frontmatter: { scope: ["test-project"], title: "Auth Refactor" },
+        body: "# Auth Refactor\n\n## Goal\nRefactor auth",
+      }));
+
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("done auth-refactor", ctx);
+
+      expect(notifications[0].type).toBe("info");
+      expect(notifications[0].message).toContain("Archived");
+      expect(notifications[0].message).toContain("archives/auth-refactor");
+
+      // Verify page moved
+      const archived = await readPage(wikiDir, "archives", "auth-refactor");
+      expect(archived).not.toBeNull();
+      expect(archived!.frontmatter.para).toBe("archives");
+
+      // Verify original is gone
+      const original = await readPage(wikiDir, "projects", "auth-refactor");
+      expect(original).toBeNull();
+    });
+
+    it("should rebuild index after archiving", async () => {
+      await writePage(wikiDir, makePage("projects", "old-proj", {
+        frontmatter: { scope: ["test-project"], title: "Old Proj" },
+        body: "# Old Proj\n\nDone.",
+      }));
+
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx } = createMockCtx();
+      await commands.get("wiki-project")!.handler("done old-proj", ctx);
+
+      const index = await readFile(join(wikiDir, "index.md"), "utf-8");
+      // Should be in archives section, not projects
+      expect(index).toContain("[[old-proj]]");
+      expect(index).toContain("## Archives");
+    });
+
+    it("should show error when project not found", async () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("done nonexistent", ctx);
+
+      expect(notifications[0].type).toBe("error");
+      expect(notifications[0].message).toContain("not found");
+    });
+
+    it("should show error when no name provided after done", async () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-project")!.handler("done", ctx);
+
+      expect(notifications[0].type).toBe("error");
+      expect(notifications[0].message).toContain("Usage");
+    });
+  });
+
+  describe("registerCommands", () => {
+    it("should register all 11 commands", () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      expect(commands.size).toBe(11);
       expect(commands.has("wiki")).toBe(true);
       expect(commands.has("wiki-ingest")).toBe(true);
       expect(commands.has("wiki-lint")).toBe(true);
@@ -416,6 +572,8 @@ describe("commands", () => {
       expect(commands.has("wiki-scope")).toBe(true);
       expect(commands.has("wiki-search")).toBe(true);
       expect(commands.has("wiki-summarize")).toBe(true);
+      expect(commands.has("wiki-migrate")).toBe(true);
+      expect(commands.has("wiki-project")).toBe(true);
     });
   });
 });

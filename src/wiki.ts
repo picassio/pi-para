@@ -19,6 +19,7 @@ import {
   parseFrontmatter,
   serializeFrontmatter,
 } from "./frontmatter.js";
+import type { StateDB } from "./state.js";
 
 // -- Types ------------------------------------------------------------------
 
@@ -33,6 +34,7 @@ export interface PageFrontmatter {
   created: string; // ISO date
   updated: string; // ISO date
   links: string[]; // outgoing [[wikilinks]]
+  schemaVersion: number; // schema version for migration tracking
 }
 
 export interface WikiPage {
@@ -243,16 +245,32 @@ export async function readPage(
 /**
  * Write a wiki page. Creates the category directory if needed. Serializes
  * frontmatter and body via frontmatter.ts.
+ *
+ * If stateDb is provided, also updates the page summary cache.
  */
 export async function writePage(
   wikiDir: string,
   page: WikiPage,
+  stateDb?: StateDB,
 ): Promise<void> {
   const dirPath = join(wikiDir, page.category);
   await mkdir(dirPath, { recursive: true });
   const filePath = join(dirPath, `${page.slug}.md`);
   const content = serializeFrontmatter(page.frontmatter, page.body);
   await writeFile(filePath, content, "utf-8");
+
+  // Update page summary cache if state DB is available
+  if (stateDb) {
+    const firstPara = extractFirstParagraphFromBody(page.body);
+    stateDb.upsertPageSummary(
+      page.slug,
+      page.category,
+      page.frontmatter.scope,
+      page.frontmatter.tags,
+      firstPara,
+      page.frontmatter.updated,
+    );
+  }
 }
 
 /**
@@ -398,6 +416,101 @@ function git(wikiDir: string, args: string[]): Promise<string | null> {
       else resolve(stdout.trim());
     });
   });
+}
+
+// -- Index rebuild -----------------------------------------------------------
+
+/**
+ * Rebuild index.md deterministically from all pages on disk.
+ *
+ * Reads all pages, groups by PARA category, sorts alphabetically within
+ * each category, and writes a standardized index.md with one-line summaries.
+ */
+export async function rebuildIndex(wikiDir: string): Promise<void> {
+  const allRefs = await listPages(wikiDir);
+
+  const sections: Record<ParaCategory, string[]> = {
+    projects: [],
+    areas: [],
+    resources: [],
+    archives: [],
+  };
+
+  for (const ref of allRefs) {
+    const page = await readPage(wikiDir, ref.category, ref.slug);
+    const title = page?.frontmatter.title ?? ref.title;
+    const summary = page ? extractFirstParagraphFromBody(page.body) : "";
+    const desc = summary && summary !== "(no summary)"
+      ? ": " + (summary.length > 120 ? summary.slice(0, 117) + "..." : summary)
+      : "";
+    sections[ref.category].push(`- [[${ref.slug}]] \u2014 ${title}${desc}`);
+  }
+
+  const categoryLabels: Record<ParaCategory, string> = {
+    projects: "Projects",
+    areas: "Areas",
+    resources: "Resources",
+    archives: "Archives",
+  };
+
+  const lines: string[] = ["# Wiki Index", ""];
+  for (const cat of PARA_CATEGORIES) {
+    lines.push(`## ${categoryLabels[cat]}`, "");
+    if (sections[cat].length > 0) {
+      lines.push(...sections[cat]);
+    } else {
+      const emptyMsg: Record<ParaCategory, string> = {
+        projects: "_No active projects yet._",
+        areas: "_No areas defined yet._",
+        resources: "_No resources yet._",
+        archives: "_No archived items._",
+      };
+      lines.push(emptyMsg[cat]);
+    }
+    lines.push("");
+  }
+
+  // Remove trailing empty line to avoid double newlines
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  lines.push(""); // single trailing newline
+
+  await writeIndex(wikiDir, lines.join("\n"));
+}
+
+/**
+ * Extract the first non-empty paragraph from a markdown body.
+ * Skips headings and blank lines. Returns a single line.
+ */
+function extractFirstParagraphFromBody(body: string): string {
+  const lines = body.split("\n");
+  const paragraphLines: string[] = [];
+  let inParagraph = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Skip headings and empty lines before paragraph starts
+    if (!inParagraph) {
+      if (trimmed === "" || trimmed.startsWith("#")) continue;
+      inParagraph = true;
+    }
+
+    // End paragraph on blank line or heading
+    if (inParagraph && (trimmed === "" || trimmed.startsWith("#"))) {
+      break;
+    }
+
+    paragraphLines.push(trimmed);
+  }
+
+  const result = paragraphLines.join(" ");
+  // Truncate long paragraphs
+  if (result.length > 200) {
+    return result.slice(0, 197) + "...";
+  }
+  return result || "(no summary)";
 }
 
 /**

@@ -184,6 +184,7 @@ export async function searchWiki(
     limit: fetchLimit,
     collection: "wiki",
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    graphBoost: true,
   });
 
   const results: WikiSearchResult[] = [];

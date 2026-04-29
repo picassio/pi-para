@@ -8,6 +8,62 @@
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { PageFrontmatter, ParaCategory } from "./wiki.js";
 
+// -- Schema versioning -------------------------------------------------------
+
+/** Current schema version. Bump when frontmatter/body format changes. */
+export const CURRENT_SCHEMA_VERSION = 1;
+
+/** A migration transforms pages from one schema version to the next. */
+export interface Migration {
+  from: number;
+  to: number;
+  migrate: (fm: Record<string, unknown>, body: string) => { fm: Record<string, unknown>; body: string };
+  description: string;
+}
+
+/**
+ * Registry of all schema migrations, ordered by `from` version.
+ * Empty while CURRENT_SCHEMA_VERSION = 1 — add entries when bumping.
+ */
+export const MIGRATIONS: Migration[] = [];
+
+/**
+ * Apply all applicable migrations to bring a page up to CURRENT_SCHEMA_VERSION.
+ *
+ * Chains migrations sequentially: 1→2, 2→3, etc.
+ * If `schemaVersion` is already >= CURRENT_SCHEMA_VERSION, returns as-is (no downgrade).
+ * If `schemaVersion` is missing, defaults to 1.
+ */
+export function migrateToLatest(
+  fm: Record<string, unknown>,
+  body: string,
+): { fm: Record<string, unknown>; body: string } {
+  let version = typeof fm.schemaVersion === "number" ? fm.schemaVersion : 1;
+
+  // Don't downgrade pages ahead of current version
+  if (version >= CURRENT_SCHEMA_VERSION) {
+    return { fm: { ...fm, schemaVersion: version }, body };
+  }
+
+  let currentFm = { ...fm };
+  let currentBody = body;
+
+  while (version < CURRENT_SCHEMA_VERSION) {
+    const migration = MIGRATIONS.find((m) => m.from === version);
+    if (!migration) {
+      // No migration path — stop at current version
+      break;
+    }
+    const result = migration.migrate(currentFm, currentBody);
+    currentFm = result.fm;
+    currentBody = result.body;
+    version = migration.to;
+  }
+
+  currentFm.schemaVersion = version;
+  return { fm: currentFm, body: currentBody };
+}
+
 const VALID_PARA_CATEGORIES = new Set<string>([
   "projects",
   "areas",
@@ -70,7 +126,9 @@ export function serializeFrontmatter(
   frontmatter: PageFrontmatter,
   body: string,
 ): string {
-  const yaml = stringifyYaml(frontmatter, { lineWidth: 0 }).trimEnd();
+  // Always write the current schema version on serialize
+  const fmWithVersion = { ...frontmatter, schemaVersion: CURRENT_SCHEMA_VERSION };
+  const yaml = stringifyYaml(fmWithVersion, { lineWidth: 0 }).trimEnd();
   return `---\n${yaml}\n---\n${body}`;
 }
 
@@ -104,6 +162,9 @@ export function validateFrontmatter(
       ? fm.updated
       : now;
 
+  const schemaVersion =
+    typeof fm.schemaVersion === "number" ? fm.schemaVersion : 1;
+
   // Build result with known fields first, then spread unknown fields underneath.
   // Known fields override any unknown fields with the same name.
   const knownKeys = new Set([
@@ -115,6 +176,7 @@ export function validateFrontmatter(
     "created",
     "updated",
     "links",
+    "schemaVersion",
   ]);
   const unknownFields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fm)) {
@@ -133,6 +195,7 @@ export function validateFrontmatter(
     created,
     updated,
     links,
+    schemaVersion,
   } as PageFrontmatter;
 }
 

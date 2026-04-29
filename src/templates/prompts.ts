@@ -18,6 +18,8 @@ PARA category rules:
 - **projects/**: ONLY for actual goals with a defined end date and completion criteria. Do NOT use for documentation about a project's internals.
 - **archives/**: Never create pages here — pages get moved here when completed.
 
+When the user defines a specific goal with a completion condition, create a projects/ page. When identifying a repeating responsibility (monitoring, maintenance, quality), create an areas/ page.
+
 Scope and tag rules:
 - scope must be a kebab-case project name (e.g. "pi-para", "qmd"). NOT topic descriptions like "session exploration".
 - tags must be kebab-case (no spaces). Don't duplicate scope values as tags.
@@ -28,7 +30,8 @@ Content rules:
 - Keep pages focused on one concept each
 - Be concise and factual — no fluff
 - Check for existing similar pages before creating new ones to avoid duplicates
-- NEVER include API keys, tokens, passwords, or secrets. Document WHERE they are stored, not the values.`;
+- NEVER include API keys, tokens, passwords, or secrets. Document WHERE they are stored, not the values.
+- Index is auto-rebuilt after every write — do not manage index.md manually. Do NOT pass indexContent to wiki_write.`;
 
 // -- Ingest Prompts ----------------------------------------------------------
 
@@ -56,7 +59,8 @@ Instructions:
 6. scope must be a kebab-case project name (NOT topic descriptions). tags must be kebab-case (no spaces).
 7. Always add [[wikilinks]] and a ## Connections section linking related pages
 8. Flag any contradictions with existing wiki content in Open Questions
-9. When updating existing pages with new information, check whether existing Key Facts are still accurate in light of the new source. If the new source contradicts existing facts, update them and note the change in Open Questions.`;
+9. When updating existing pages with new information, check whether existing Key Facts are still accurate in light of the new source. If the new source contradicts existing facts, update them and note the change in Open Questions.
+10. Do NOT pass indexContent to wiki_write — the index is auto-rebuilt from all pages on disk.`;
 
 // -- Query Prompts -----------------------------------------------------------
 
@@ -170,10 +174,13 @@ Capture ANY of the following — even from short sessions:
 - Environment-specific knowledge (dev vs prod differences)
 - Operational runbooks (how to restart, deploy, rollback)
 
+Index is auto-rebuilt after every write — do not manage index.md manually. Do NOT pass indexContent to wiki_write.
+
 Rules:
 - If the session was ONLY greetings or completely off-topic chitchat with zero project knowledge, respond with "nothing to capture"
 - Otherwise, always capture — even small facts are valuable ("the deploy key is at /path/to/key")
 - Classify each piece of knowledge by PARA category autonomously
+- When the user defines a specific goal with a completion condition, create a projects/ page. When identifying a repeating responsibility (monitoring, maintenance, quality), create an areas/ page.
 - Produce wiki pages in the standard wiki summary format (Topic, Key Facts, Insights, Connections, Open Questions, Sources)
 - Include the full session file path in the Sources section for traceability
 - ALWAYS search wiki_query BEFORE creating any page — update existing pages instead of creating duplicates

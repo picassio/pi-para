@@ -15,11 +15,83 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { ProjectScope } from "./scope.js";
 import type { LintReport } from "./lint.js";
 import { lintWiki } from "./lint.js";
-import { listPages, PARA_CATEGORIES } from "./wiki.js";
-import type { ParaCategory } from "./wiki.js";
+import { listPages, readPage, writePage, movePage, writeIndex, PARA_CATEGORIES } from "./wiki.js";
+import type { ParaCategory, PageRef } from "./wiki.js";
 import { searchWiki } from "./store.js";
+import {
+  CURRENT_SCHEMA_VERSION,
+  migrateToLatest,
+  parseFrontmatter,
+  validateFrontmatter,
+} from "./frontmatter.js";
 
 // -- Helpers -----------------------------------------------------------------
+
+/** Convert raw text to a kebab-case slug. */
+function toKebabSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/** Convert a slug to title case. */
+function slugToTitle(slug: string): string {
+  return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Rebuild index.md from all pages on disk. */
+async function rebuildIndexFromDisk(wikiDir: string): Promise<void> {
+  const allPages = await listPages(wikiDir);
+  const sections: Record<ParaCategory, string[]> = {
+    projects: [],
+    areas: [],
+    resources: [],
+    archives: [],
+  };
+  for (const ref of allPages) {
+    const page = await readPage(wikiDir, ref.category, ref.slug);
+    const title = page?.frontmatter.title ?? ref.title;
+    const summary =
+      page?.body
+        .split("\n")
+        .find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"))
+        ?.trim() ?? "";
+    const desc = summary.length > 120 ? summary.slice(0, 117) + "..." : summary;
+    sections[ref.category].push(
+      `- [[${ref.slug}]] \u2014 ${title}${desc ? ": " + desc : ""}`,
+    );
+  }
+  const indexLines = [
+    "# Wiki Index",
+    "",
+    "## Projects",
+    "",
+    sections.projects.length > 0
+      ? sections.projects.join("\n")
+      : "_No active projects yet._",
+    "",
+    "## Areas",
+    "",
+    sections.areas.length > 0
+      ? sections.areas.join("\n")
+      : "_No areas defined yet._",
+    "",
+    "## Resources",
+    "",
+    sections.resources.length > 0
+      ? sections.resources.join("\n")
+      : "_No resources yet._",
+    "",
+    "## Archives",
+    "",
+    sections.archives.length > 0
+      ? sections.archives.join("\n")
+      : "_No archived items._",
+  ];
+  await writeIndex(wikiDir, indexLines.join("\n"));
+}
 
 /** Parse log.md and return the last N entries as text lines. */
 async function readLastLogEntries(
@@ -392,6 +464,169 @@ export function registerCommands(
       } finally {
         state.close();
       }
+    },
+  });
+
+  // ---- /wiki-migrate — batch schema migration ------------------------------
+
+  pi.registerCommand("wiki-migrate", {
+    description: "Migrate all wiki pages to the current schema version",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify(`Migrating wiki pages to schema version ${CURRENT_SCHEMA_VERSION}...`, "info");
+
+      const allPages = await listPages(wikiDir);
+      let migratedCount = 0;
+
+      for (const ref of allPages) {
+        const page = await readPage(wikiDir, ref.category, ref.slug);
+        if (!page) continue;
+
+        const version = page.frontmatter.schemaVersion ?? 1;
+        if (version >= CURRENT_SCHEMA_VERSION) continue;
+
+        const rawObj = page.frontmatter as unknown as Record<string, unknown>;
+        const result = migrateToLatest(rawObj, page.body);
+
+        const migratedFm = result.fm as unknown as import("./wiki.js").PageFrontmatter;
+        migratedFm.updated = new Date().toISOString();
+        await writePage(wikiDir, {
+          category: ref.category,
+          slug: ref.slug,
+          frontmatter: migratedFm,
+          body: result.body,
+        });
+        migratedCount++;
+      }
+
+      ctx.ui.notify(
+        migratedCount > 0
+          ? `Migrated ${migratedCount} page(s) to schema version ${CURRENT_SCHEMA_VERSION}.`
+          : `All ${allPages.length} page(s) already at schema version ${CURRENT_SCHEMA_VERSION}.`,
+        "info",
+      );
+    },
+  });
+
+  // ---- /wiki-project — project lifecycle management ------------------------
+
+  pi.registerCommand("wiki-project", {
+    description:
+      "Create a project page (/wiki-project <name> <goal>) or archive it (/wiki-project done <name>)",
+    handler: async (args, ctx) => {
+      const parts = args.trim().split(/\s+/);
+
+      if (parts.length === 0 || !parts[0]) {
+        ctx.ui.notify(
+          "Usage: /wiki-project <name> <goal>\n       /wiki-project done <name>",
+          "error",
+        );
+        return;
+      }
+
+      if (parts[0] === "done") {
+        // ---------- Archive a project ----------
+        const rawName = parts.slice(1).join("-");
+        if (!rawName) {
+          ctx.ui.notify("Usage: /wiki-project done <name>", "error");
+          return;
+        }
+
+        const slug = toKebabSlug(rawName);
+        if (!slug) {
+          ctx.ui.notify(
+            "Invalid project name — must contain at least one alphanumeric character.",
+            "error",
+          );
+          return;
+        }
+
+        const page = await readPage(wikiDir, "projects", slug);
+        if (!page) {
+          ctx.ui.notify(`Project not found: projects/${slug}`, "error");
+          return;
+        }
+
+        const ref: PageRef = {
+          category: "projects",
+          slug,
+          title: page.frontmatter.title,
+          path: `projects/${slug}.md`,
+        };
+        await movePage(wikiDir, ref, "archives");
+        await rebuildIndexFromDisk(wikiDir);
+
+        ctx.ui.notify(
+          `Archived project: ${page.frontmatter.title} → archives/${slug}`,
+          "info",
+        );
+        return;
+      }
+
+      // ---------- Create a new project ----------
+      const rawName = parts[0];
+      const goal = parts.slice(1).join(" ");
+
+      if (!goal) {
+        ctx.ui.notify(
+          "Usage: /wiki-project <name> <goal>\n       /wiki-project done <name>",
+          "error",
+        );
+        return;
+      }
+
+      const slug = toKebabSlug(rawName);
+      if (!slug) {
+        ctx.ui.notify(
+          "Invalid project name — must contain at least one alphanumeric character.",
+          "error",
+        );
+        return;
+      }
+
+      const title = slugToTitle(slug);
+      const scope = getScope();
+      const now = new Date().toISOString();
+
+      const body = `# ${title}
+
+## Goal
+${goal}
+
+## Status
+- [ ] Define scope and milestones
+- [ ] Implementation
+- [ ] Verification
+
+## End Condition
+${goal} — verified and complete.
+
+## Connections
+(add related wiki pages here)`;
+
+      const frontmatter = validateFrontmatter({
+        title,
+        para: "projects",
+        scope: [scope.name],
+        tags: [],
+        sources: [],
+        created: now,
+        updated: now,
+        links: [],
+      });
+
+      await writePage(wikiDir, {
+        category: "projects",
+        slug,
+        frontmatter,
+        body,
+      });
+
+      await rebuildIndexFromDisk(wikiDir);
+
+      ctx.ui.notify(
+        `Created project: projects/${slug} — "${title}"`,
+        "info",
+      );
     },
   });
 

@@ -13,6 +13,7 @@ import {
   writeIndex,
   appendLog,
   readSchema,
+  rebuildIndex,
   PARA_CATEGORIES,
 } from "../src/wiki.js";
 import type { WikiPage, LogEntry, PageFrontmatter } from "../src/wiki.js";
@@ -400,5 +401,94 @@ describe("readSchema", () => {
     expect(schema).toContain("Naming Conventions");
     expect(schema).toContain("Wiki Summary Format");
     expect(schema).toContain("Archiving");
+  });
+});
+
+describe("rebuildIndex", () => {
+  it("produces correct format with pages in all categories", async () => {
+    await initWiki(wikiDir);
+
+    await writePage(wikiDir, makePage({
+      category: "projects",
+      slug: "proj-alpha",
+      frontmatter: makeFrontmatter({ title: "Project Alpha", para: "projects" }),
+      body: "# Project Alpha\n\nThis is project alpha.\n",
+    }));
+    await writePage(wikiDir, makePage({
+      category: "areas",
+      slug: "area-ops",
+      frontmatter: makeFrontmatter({ title: "Operations", para: "areas" }),
+      body: "Ongoing operations tasks.\n",
+    }));
+    await writePage(wikiDir, makePage({
+      category: "resources",
+      slug: "res-guide",
+      frontmatter: makeFrontmatter({ title: "Setup Guide", para: "resources" }),
+      body: "# Setup\n\nHow to set up the project.\n",
+    }));
+    await writePage(wikiDir, makePage({
+      category: "archives",
+      slug: "arch-old",
+      frontmatter: makeFrontmatter({ title: "Old Project", para: "archives" }),
+      body: "This project is archived.\n",
+    }));
+
+    await rebuildIndex(wikiDir);
+
+    const index = await readIndex(wikiDir);
+    expect(index).toContain("# Wiki Index");
+    expect(index).toContain("## Projects");
+    expect(index).toContain("[[proj-alpha]]");
+    expect(index).toContain("Project Alpha");
+    expect(index).toContain("## Areas");
+    expect(index).toContain("[[area-ops]]");
+    expect(index).toContain("## Resources");
+    expect(index).toContain("[[res-guide]]");
+    expect(index).toContain("## Archives");
+    expect(index).toContain("[[arch-old]]");
+    // Summaries should be included
+    expect(index).toContain("This is project alpha");
+    expect(index).toContain("Ongoing operations tasks");
+  });
+
+  it("produces skeleton index for empty wiki", async () => {
+    await initWiki(wikiDir);
+
+    await rebuildIndex(wikiDir);
+
+    const index = await readIndex(wikiDir);
+    expect(index).toContain("# Wiki Index");
+    expect(index).toContain("## Projects");
+    expect(index).toContain("_No active projects yet._");
+    expect(index).toContain("## Areas");
+    expect(index).toContain("_No areas defined yet._");
+    expect(index).toContain("## Resources");
+    expect(index).toContain("_No resources yet._");
+    expect(index).toContain("## Archives");
+    expect(index).toContain("_No archived items._");
+  });
+
+  it("sorts pages alphabetically within each category", async () => {
+    await initWiki(wikiDir);
+
+    await writePage(wikiDir, makePage({
+      category: "resources",
+      slug: "zebra",
+      frontmatter: makeFrontmatter({ title: "Zebra", para: "resources" }),
+      body: "Zebra content.\n",
+    }));
+    await writePage(wikiDir, makePage({
+      category: "resources",
+      slug: "alpha",
+      frontmatter: makeFrontmatter({ title: "Alpha", para: "resources" }),
+      body: "Alpha content.\n",
+    }));
+
+    await rebuildIndex(wikiDir);
+
+    const index = await readIndex(wikiDir);
+    const alphaPos = index.indexOf("[[alpha]]");
+    const zebraPos = index.indexOf("[[zebra]]");
+    expect(alphaPos).toBeLessThan(zebraPos);
   });
 });

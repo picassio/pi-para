@@ -3,7 +3,11 @@ import {
   parseFrontmatter,
   serializeFrontmatter,
   validateFrontmatter,
+  CURRENT_SCHEMA_VERSION,
+  MIGRATIONS,
+  migrateToLatest,
 } from "../src/frontmatter.js";
+import type { Migration } from "../src/frontmatter.js";
 import type { PageFrontmatter } from "../src/wiki.js";
 
 describe("frontmatter", () => {
@@ -297,6 +301,159 @@ Body`;
     it("handles empty title string", () => {
       const fm = validateFrontmatter({ title: "" });
       expect(fm.title).toBe("Untitled");
+    });
+
+    it("defaults schemaVersion to 1 when missing", () => {
+      const fm = validateFrontmatter({ title: "No Version" });
+      expect(fm.schemaVersion).toBe(1);
+    });
+
+    it("preserves explicit schemaVersion", () => {
+      const fm = validateFrontmatter({ title: "Versioned", schemaVersion: 3 });
+      expect(fm.schemaVersion).toBe(3);
+    });
+  });
+
+  describe("schemaVersion", () => {
+    it("schemaVersion preserved through parse/serialize roundtrip", () => {
+      const fm: PageFrontmatter = {
+        title: "Versioned Page",
+        para: "resources",
+        scope: ["test"],
+        tags: ["versioning"],
+        sources: [],
+        created: "2026-04-27T00:00:00.000Z",
+        updated: "2026-04-27T00:00:00.000Z",
+        links: [],
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+      };
+      const body = "# Content\n";
+      const serialized = serializeFrontmatter(fm, body);
+      const parsed = parseFrontmatter(serialized);
+      expect(parsed.frontmatter.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+      expect(parsed.body).toBe(body);
+    });
+
+    it("serializeFrontmatter always writes CURRENT_SCHEMA_VERSION", () => {
+      const fm: PageFrontmatter = {
+        title: "Old Version",
+        para: "resources",
+        scope: [],
+        tags: [],
+        sources: [],
+        created: "2026-04-27T00:00:00.000Z",
+        updated: "2026-04-27T00:00:00.000Z",
+        links: [],
+        schemaVersion: 99, // some arbitrary old/future version
+      };
+      const serialized = serializeFrontmatter(fm, "body");
+      const parsed = parseFrontmatter(serialized);
+      expect(parsed.frontmatter.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    });
+
+    it("missing schemaVersion defaults to 1 after parse", () => {
+      const content = `---
+title: Legacy Page
+para: resources
+---
+# Old page without schema version
+`;
+      const { frontmatter } = parseFrontmatter(content);
+      expect(frontmatter.schemaVersion).toBe(1);
+    });
+  });
+
+  describe("migrateToLatest", () => {
+    it("returns unchanged if already at current version", () => {
+      const fm = { title: "Current", schemaVersion: CURRENT_SCHEMA_VERSION };
+      const body = "some body";
+      const result = migrateToLatest(fm, body);
+      expect(result.fm.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+      expect(result.body).toBe(body);
+    });
+
+    it("is idempotent", () => {
+      const fm = { title: "Test", schemaVersion: 1 };
+      const body = "body text";
+      const first = migrateToLatest(fm, body);
+      const second = migrateToLatest(
+        first.fm as Record<string, unknown>,
+        first.body,
+      );
+      expect(second.fm).toEqual(first.fm);
+      expect(second.body).toBe(first.body);
+    });
+
+    it("handles version > CURRENT gracefully (no crash, no downgrade)", () => {
+      const fm = { title: "Future", schemaVersion: 999 };
+      const body = "future body";
+      const result = migrateToLatest(fm, body);
+      expect(result.fm.schemaVersion).toBe(999); // not downgraded
+      expect(result.body).toBe(body);
+    });
+
+    it("defaults missing schemaVersion to 1", () => {
+      const fm = { title: "No Version" };
+      const body = "body";
+      const result = migrateToLatest(fm, body);
+      expect(result.fm.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    });
+
+    it("chains migrations 1→2→3 with injected test migrations", () => {
+      // Temporarily inject test migrations
+      const originalLength = MIGRATIONS.length;
+      const testMigrations: Migration[] = [
+        {
+          from: 1,
+          to: 2,
+          migrate: (fm, body) => ({
+            fm: { ...fm, migrated_v2: true },
+            body: body + "\n<!-- migrated to v2 -->",
+          }),
+          description: "Test migration 1→2",
+        },
+        {
+          from: 2,
+          to: 3,
+          migrate: (fm, body) => ({
+            fm: { ...fm, migrated_v3: true },
+            body: body + "\n<!-- migrated to v3 -->",
+          }),
+          description: "Test migration 2→3",
+        },
+      ];
+      MIGRATIONS.push(...testMigrations);
+
+      // Temporarily bump CURRENT_SCHEMA_VERSION by patching the module
+      // We can't change the const, so we test with version 1 going to 3
+      // and the migrations array going up to 3.
+      // Since CURRENT_SCHEMA_VERSION = 1 and we can't change it,
+      // the migrations won't run because version >= CURRENT.
+      // Instead, let's test the migration chain directly:
+      try {
+        // Test the chain manually since we can't bump CURRENT_SCHEMA_VERSION
+        let version = 1;
+        let fm: Record<string, unknown> = { title: "Chain Test" };
+        let body = "original";
+
+        while (version < 3) {
+          const migration = MIGRATIONS.find((m) => m.from === version);
+          expect(migration).toBeDefined();
+          const result = migration!.migrate(fm, body);
+          fm = result.fm;
+          body = result.body;
+          version = migration!.to;
+        }
+
+        expect(version).toBe(3);
+        expect(fm.migrated_v2).toBe(true);
+        expect(fm.migrated_v3).toBe(true);
+        expect(body).toContain("<!-- migrated to v2 -->");
+        expect(body).toContain("<!-- migrated to v3 -->");
+      } finally {
+        // Restore original migrations array
+        MIGRATIONS.splice(originalLength);
+      }
     });
   });
 });

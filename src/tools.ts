@@ -28,6 +28,7 @@ import {
   readSchema,
   appendLog,
   gitCommit,
+  rebuildIndex,
   PARA_CATEGORIES,
 } from "./wiki.js";
 import type {
@@ -35,7 +36,12 @@ import type {
   WikiPage,
   PageRef,
 } from "./wiki.js";
-import { validateFrontmatter, parseFrontmatter } from "./frontmatter.js";
+import {
+  validateFrontmatter,
+  parseFrontmatter,
+  CURRENT_SCHEMA_VERSION,
+  migrateToLatest,
+} from "./frontmatter.js";
 import { extractWikilinks, autoLinkSlugs, syncFrontmatterLinks } from "./link-utils.js";
 import { normalizeTags, normalizeScopes } from "./tag-registry.js";
 import { redactSecrets } from "./redact.js";
@@ -108,6 +114,8 @@ const WikiWriteParams = Type.Object({
   pages: Type.Array(WikiWritePageSchema, {
     description: "Pages to write or update",
   }),
+  // DEPRECATED: indexContent is ignored. Index is auto-rebuilt from all pages on disk.
+  // Kept in schema to avoid breaking existing callers.
   indexContent: Type.Optional(
     Type.String({ description: "Updated index.md content (full replacement)" }),
   ),
@@ -134,6 +142,8 @@ const WikiLintParams = Type.Object({
     Type.Boolean({ description: "Auto-fix simple issues (default true)" }),
   ),
 });
+
+const WikiMigrateParams = Type.Object({});
 
 const WikiSummarizeParams = Type.Object({
   target: Type.String({
@@ -469,44 +479,10 @@ function createWriteExecute(
     // Always auto-rebuild index from disk.
     // The LLM's indexContent is unreliable — it only knows about pages
     // in its context, so it produces partial indexes that overwrite
-    // the full one. Ignore indexContent entirely.
+    // the full one. indexContent parameter is deprecated and ignored.
     let indexUpdated = false;
     if (pagesWritten.length > 0) {
-      // Auto-rebuild index from all pages on disk
-      const allPages = await listPages(wikiDir);
-      const sections: Record<ParaCategory, string[]> = {
-        projects: [],
-        areas: [],
-        resources: [],
-        archives: [],
-      };
-      for (const ref of allPages) {
-        const page = await readPage(wikiDir, ref.category, ref.slug);
-        const title = page?.frontmatter.title ?? ref.title;
-        const summary = page?.body.split("\n").find(l => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim() ?? "";
-        const desc = summary.length > 120 ? summary.slice(0, 117) + "..." : summary;
-        sections[ref.category].push(`- [[${ref.slug}]] \u2014 ${title}${desc ? ": " + desc : ""}`);
-      }
-      const indexLines = [
-        "# Wiki Index",
-        "",
-        "## Projects",
-        "",
-        sections.projects.length > 0 ? sections.projects.join("\n") : "_No active projects yet._",
-        "",
-        "## Areas",
-        "",
-        sections.areas.length > 0 ? sections.areas.join("\n") : "_No areas defined yet._",
-        "",
-        "## Resources",
-        "",
-        sections.resources.length > 0 ? sections.resources.join("\n") : "_No resources yet._",
-        "",
-        "## Archives",
-        "",
-        sections.archives.length > 0 ? sections.archives.join("\n") : "_No archived items._",
-      ];
-      await writeIndex(wikiDir, indexLines.join("\n"));
+      await rebuildIndex(wikiDir);
       indexUpdated = true;
     }
 
@@ -669,8 +645,9 @@ function createMoveExecute(
 
     await movePage(wikiDir, ref, params.to);
 
-    // Re-index
+    // Re-index and rebuild index.md
     await reindex(store);
+    await rebuildIndex(wikiDir);
     markDirty();
 
     // Git commit
@@ -838,6 +815,47 @@ function createSummarizeExecute(
   };
 }
 
+// -- Factory: wiki_migrate execute -------------------------------------------
+
+function createMigrateExecute(
+  wikiDir: string,
+) {
+  return async (): Promise<AgentToolResult<{ migratedCount: number; totalPages: number }>> => {
+    const allRefs = await listPages(wikiDir);
+    let migratedCount = 0;
+
+    for (const ref of allRefs) {
+      const page = await readPage(wikiDir, ref.category, ref.slug);
+      if (!page) continue;
+
+      const version = page.frontmatter.schemaVersion ?? 1;
+      if (version >= CURRENT_SCHEMA_VERSION) continue;
+
+      const rawObj = page.frontmatter as unknown as Record<string, unknown>;
+      const result = migrateToLatest(rawObj, page.body);
+
+      const migratedFm = result.fm as unknown as import("./wiki.js").PageFrontmatter;
+      migratedFm.updated = new Date().toISOString();
+      await writePage(wikiDir, {
+        category: ref.category,
+        slug: ref.slug,
+        frontmatter: migratedFm,
+        body: result.body,
+      });
+      migratedCount++;
+    }
+
+    const summary = migratedCount > 0
+      ? `Migrated ${migratedCount} page(s) to schema version ${CURRENT_SCHEMA_VERSION}.`
+      : `All ${allRefs.length} page(s) already at schema version ${CURRENT_SCHEMA_VERSION}.`;
+
+    return {
+      content: [{ type: "text", text: summary }],
+      details: { migratedCount, totalPages: allRefs.length },
+    };
+  };
+}
+
 // -- Wikilink extraction helper (re-exported from link-utils) ----------------
 // extractWikilinks, autoLinkSlugs, syncFrontmatterLinks imported above
 
@@ -862,6 +880,7 @@ export function registerTools(
   const readExec = createReadExecute(wikiDir);
   const moveExec = createMoveExecute(wikiDir, store, markDirty);
   const lintExec = createLintExecute(wikiDir);
+  const migrateExec = createMigrateExecute(wikiDir);
   const summarizeExec = createSummarizeExecute(wikiDir, getScope);
 
   // -- wiki_ingest --
@@ -1120,6 +1139,47 @@ export function registerTools(
         parts.push(theme.fg("success", "healthy"));
       }
       return new Text(parts.join(" | "), 0, 0);
+    },
+  });
+
+  // -- wiki_migrate --
+  pi.registerTool({
+    name: "wiki_migrate",
+    label: "Wiki Migrate",
+    description:
+      "Migrate all wiki pages to the current schema version. " +
+      "Runs pending schema migrations on any pages with an older schemaVersion.",
+    promptSnippet: "Batch-migrate all wiki pages to the current schema version",
+    parameters: WikiMigrateParams,
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: migrating...");
+      try { return await migrateExec(); } finally { ctx.ui.setStatus("pi-para", undefined); }
+    },
+    renderCall(_args, theme) {
+      return new Text(
+        theme.fg("toolTitle", theme.bold("wiki_migrate ")) +
+          theme.fg("muted", `→ v${CURRENT_SCHEMA_VERSION}`),
+        0,
+        0,
+      );
+    },
+    renderResult(result, _options, theme) {
+      const details = result.details as { migratedCount: number; totalPages: number } | undefined;
+      if (!details) {
+        return new Text(theme.fg("dim", "Migration complete"), 0, 0);
+      }
+      if (details.migratedCount === 0) {
+        return new Text(
+          theme.fg("success", `All ${details.totalPages} pages at v${CURRENT_SCHEMA_VERSION}`),
+          0,
+          0,
+        );
+      }
+      return new Text(
+        theme.fg("success", `Migrated ${details.migratedCount}/${details.totalPages} page(s)`),
+        0,
+        0,
+      );
     },
   });
 

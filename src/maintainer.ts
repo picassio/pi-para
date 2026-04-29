@@ -1,5 +1,5 @@
 /**
- * Wiki maintenance agent — uses LLM to intelligently maintain the wiki.
+ * Wiki maintenance agent - uses LLM to intelligently maintain the wiki.
  *
  * Replaces brittle code-based maintenance (link discovery, dedup detection,
  * tag canonicalization, category review) with an LLM agent that understands
@@ -84,9 +84,21 @@ Your maintenance tasks (in priority order):
 
 6. STALENESS REVIEW
    - Identify pages not updated in >30 days that make specific claims about code, file paths, configs, ports, or API endpoints
-   - These are high-risk for being outdated — add a note in Open Questions: "⚠️ This page has not been updated since [date]. Claims about [specific thing] should be verified."
+   - These are high-risk for being outdated - add a note in Open Questions: "⚠️ This page has not been updated since [date]. Claims about [specific thing] should be verified."
    - If you can determine from other pages or context that a claim is now wrong, fix it directly
    - Pages about architecture decisions or historical events are less likely to go stale than pages about configs or deployment
+
+7. PROJECT LIFECYCLE REVIEW
+   - Review projects/ pages — only archive a project if ALL of these are true:
+     a) The End Condition section explicitly says the goal is met or done
+     b) There are NO unchecked items ([ ]) remaining anywhere in the page
+     c) The page has no Open Questions or pending tasks
+   - Do NOT archive just because status checkboxes are ticked — there may be remaining work not captured in checkboxes
+   - When archiving: use wiki_write to create the page in archives/ with '(Completed)' in the title, then wiki_merge to remove the projects/ copy
+
+8. AREAS HEALTH METRICS
+   - Review areas/ pages - update current health metrics based on recent lint results and maintenance findings
+   - Areas represent ongoing responsibilities; keep them current with the latest status
 
 Rules:
 - Work systematically: list all pages first, then process in batches
@@ -264,11 +276,11 @@ function createMaintenanceTools(wikiDir: string, store: QMDStore): AgentTool[] {
   const wikiLint: AgentTool<typeof WikiLintParams> = {
     name: "wiki_lint",
     label: "Wiki Lint",
-    description: "Run lint checks and return a report. Does NOT auto-fix — you decide what to fix.",
+    description: "Run lint checks and return a report. Does NOT auto-fix - you decide what to fix.",
     parameters: WikiLintParams,
     execute: async () => {
       const report = await lintWiki(wikiDir, { autoFix: false });
-      const lines = report.issues.map(i => `[${i.severity}] ${i.category}: ${i.page ?? ""} — ${i.message}`);
+      const lines = report.issues.map(i => `[${i.severity}] ${i.category}: ${i.page ?? ""} - ${i.message}`);
       return {
         content: [{ type: "text", text: `${report.issues.length} issues:\n${lines.join("\n")}\n\nStats: ${JSON.stringify(report.stats.byCategory)}` }],
         details: { issueCount: report.issues.length },
@@ -291,7 +303,7 @@ async function rebuildIndex(wikiDir: string): Promise<void> {
     const title = page?.frontmatter.title ?? ref.title;
     const summary = page?.body.split("\n").find(l => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim() ?? "";
     const desc = summary.length > 120 ? summary.slice(0, 117) + "..." : summary;
-    sections[ref.category].push(`- [[${ref.slug}]] — ${title}${desc ? ": " + desc : ""}`);
+    sections[ref.category].push(`- [[${ref.slug}]] - ${title}${desc ? ": " + desc : ""}`);
   }
   const indexLines = [
     "# Wiki Index", "",
@@ -330,7 +342,7 @@ export async function runMaintenance(
 1. Look for duplicate pages (same topic, different slugs) and merge them
 2. Find pages with 0 outgoing links and add relevant [[wikilinks]]
 3. Check for any category misuse or tag issues
-4. Review pages not updated in >30 days for staleness — add Open Questions warnings for pages making specific claims about code/configs/ports that may have changed
+4. Review pages not updated in >30 days for staleness - add Open Questions warnings for pages making specific claims about code/configs/ports that may have changed
 Be thorough but conservative. Summarize what you changed at the end.`;
 
   try {
