@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.4] — 2026-04-29
+
+### Fixed
+- **Lazy store retry** — if qmd store fails to open at session start (db locked, transient error), retries automatically on first tool use instead of staying disabled for the entire session
+  - Store proxy intercepts calls when `storeDisabled` is true and attempts `openStore()` before throwing
+  - On successful retry, marks context dirty so wiki context is rebuilt
+  - Prevents guard against concurrent retry attempts
+
 ## [0.4.3] — 2026-04-29
 
 ### Added

@@ -185,12 +185,39 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     contextIncludeIndex: config.contextIncludeIndex,
   });
 
-  // Store proxy — delegates to real store once opened
+  // Lazy retry: if the store failed at startup, try reopening on first tool use.
+  // This handles cases where the db was temporarily locked or had transient errors.
+  let storeRetrying = false;
+  async function retryStoreOpen(): Promise<boolean> {
+    if (storeRetrying) return false;
+    storeRetrying = true;
+    try {
+      store = await openStore(wikiDir);
+      storeDisabled = false;
+      markContextDirty(); // rebuild context now that store works
+      return true;
+    } catch {
+      return false;
+    } finally {
+      storeRetrying = false;
+    }
+  }
+
+  // Store proxy — delegates to real store once opened, with lazy retry on failure
   const storeProxy = new Proxy({} as QMDStore, {
     get(_target, prop) {
       if (!store) {
         if (storeDisabled) {
-          return (..._args: unknown[]) => {
+          // Return an async function that retries opening the store first
+          return async (...args: unknown[]) => {
+            const reopened = await retryStoreOpen();
+            if (reopened && store) {
+              const method = (store as unknown as Record<string, unknown>)[prop as string];
+              if (typeof method === "function") {
+                return (method as Function).apply(store, args);
+              }
+              return method;
+            }
             throw new Error("Wiki search is disabled: qmd store failed to open.");
           };
         }
