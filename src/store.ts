@@ -166,10 +166,25 @@ export async function searchWiki(
 ): Promise<WikiSearchResult[]> {
   const limit = opts.limit ?? 10;
 
-  // Use searchLex (BM25) — fast, no LLM dependency.
-  // Fetch extra results to compensate for post-filtering.
-  const fetchLimit = limit * 3;
-  const rawResults = await store.searchLex(query, { limit: fetchLimit, collection: "wiki" });
+  // Build metadata filter for SQL-level filtering (qmd v2.2.0+)
+  // Note: we can only use metadata.category here, NOT scope.
+  // Scope filtering must remain as post-filter because:
+  // - Pages with scope:["global"] must match ANY project scope
+  // - Pages in the scope.include list need OR matching
+  // - The exclude list needs post-filter negation
+  // SQL-level scope filter would miss global pages.
+  const metadata: Record<string, string> = {};
+  if (opts.category) {
+    metadata.category = opts.category;
+  }
+
+  const fetchLimit = opts.scope ? limit * 3 : limit;
+
+  const rawResults = await store.searchLex(query, {
+    limit: fetchLimit,
+    collection: "wiki",
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+  });
 
   const results: WikiSearchResult[] = [];
 
@@ -180,13 +195,9 @@ export async function searchWiki(
 
     const { category, slug } = parsed;
 
-    // Exclude archives unless explicitly requested
+    // Exclude archives unless explicitly requested (post-filter fallback
+    // for pages without frontmatter metadata)
     if (category === "archives" && !opts.includeArchives) {
-      continue;
-    }
-
-    // Filter by category if specified
-    if (opts.category && category !== opts.category) {
       continue;
     }
 
@@ -194,7 +205,7 @@ export async function searchWiki(
     const body = result.body ?? "";
     const { frontmatter } = parseFrontmatter(body);
 
-    // Filter by scope if provided
+    // Scope post-filter fallback for pages without metadata
     if (opts.scope && !matchesScope(frontmatter.scope, opts.scope)) {
       continue;
     }
