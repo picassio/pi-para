@@ -281,6 +281,25 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     markContextDirty();
   });
 
+  // -- session_compact: register session for daemon capture on compaction ----
+
+  pi.on("session_compact", async (_event, ctx) => {
+    // Compaction means the session has accumulated enough content that details
+    // are about to be compressed/lost. Perfect time to capture knowledge.
+    const sessionFile = ctx.sessionManager.getSessionFile();
+    if (sessionFile) {
+      try {
+        const registry = join(wikiDir, ".completed-sessions");
+        const entry = `${new Date().toISOString()}|${sessionFile}\n`;
+        await appendFile(registry, entry);
+        ctx.ui.setStatus("pi-para", "wiki: capture queued (compaction)");
+        setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
+      } catch {
+        // Non-fatal
+      }
+    }
+  });
+
   // -- session_shutdown: register session for daemon, close store ------------
 
   pi.on("session_shutdown", async (_event, ctx) => {

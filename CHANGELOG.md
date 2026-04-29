@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.3] — 2026-04-29
+
+### Added
+- **Mid-session capture on compaction** — registers session for daemon capture when auto/manual compaction fires
+  - Hooks into `session_compact` event — fires after context compaction
+  - Compaction signals the session has accumulated enough content that details are about to be compressed
+  - Perfect capture trigger: knowledge is captured before details are lost in the summary
+  - Shows status line feedback: "wiki: capture queued (compaction)"
+  - Works alongside existing `session_shutdown` capture — sessions now captured at both compaction and quit
+
+### Fixed
+- Skill name mismatch: `skills/setup/SKILL.md` name field changed from `pi-para-setup` to `setup` to match directory
+
 ## [0.4.2] — 2026-04-29
 
 ### Added
