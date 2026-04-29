@@ -47,6 +47,7 @@ interface ParaConfig {
   lintStaleDays: number;
   searchLimit: number;
   searchIncludeArchives: boolean;
+  searchGraphBoost: boolean;
   /** Daemon LLM: "provider/model-id" (e.g. "anthropic/claude-sonnet-4").
    *  If not set, daemon auto-detects from pi env keys or qmd config. */
   daemonModel: string | null;
@@ -68,6 +69,7 @@ function getDefaultConfig(): ParaConfig {
     lintStaleDays: 90,
     searchLimit: 10,
     searchIncludeArchives: false,
+    searchGraphBoost: true,
     daemonModel: null,
     webWiki: {
       enabled: false,
@@ -201,7 +203,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   });
 
   // Register tools, context injection, commands
-  registerTools(pi, wikiDir, storeProxy, getScope, markContextDirty);
+  registerTools(pi, wikiDir, storeProxy, getScope, markContextDirty, () => config.searchGraphBoost);
   setupContextInjection(pi, wikiDir, storeProxy, () => currentScope, getConfig);
   registerCommands(pi, wikiDir, storeProxy, getScope, setScope);
 

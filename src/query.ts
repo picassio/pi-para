@@ -29,6 +29,8 @@ export interface QueryOptions {
   includeArchives?: boolean;
   /** Also search the raw/ collection (default false) */
   includeRaw?: boolean;
+  /** Enable graph-boosted search via 1-hop wikilink expansion (default true) */
+  graphBoost?: boolean;
 }
 
 export interface QueryResult {
@@ -82,6 +84,7 @@ export async function queryWiki(
     category: options.category,
     limit,
     includeArchives,
+    graphBoost: options.graphBoost,
   });
 
   return {

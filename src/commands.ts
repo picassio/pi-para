@@ -673,7 +673,7 @@ ${goal} — verified and complete.
 
         const choice = await ctx.ui.select("Wiki Settings", [
           `[Context] Max tokens: ${config.contextMaxTokens ?? 4000}`,
-          `[Search]  Limit: ${config.searchLimit ?? 10}`,
+          `[Search]  Limit: ${config.searchLimit ?? 10}, Graph boost: ${config.searchGraphBoost ?? true}`,
           `[Lint]    Auto-fix: ${config.lintAutoFix ?? true}, Stale days: ${config.lintStaleDays ?? 90}`,
           `[Daemon]  Model: ${config.daemonModel ?? "auto"}`,
           `[WebWiki] ${(config as any).webWiki?.enabled ? `Enabled at http://${(config as any).webWiki?.host ?? "0.0.0.0"}:${(config as any).webWiki?.port ?? 10973}` : "Disabled"}`,
@@ -694,11 +694,21 @@ ${goal} — verified and complete.
             ctx.ui.notify(`Set contextMaxTokens = ${config.contextMaxTokens}`, "info");
           }
         } else if (choice.startsWith("[Search]")) {
-          const val = await ctx.ui.input("Search result limit:", String(config.searchLimit ?? 10));
-          if (val) {
-            config.searchLimit = parseInt(val) || 10;
+          const sub = await ctx.ui.select("Search Settings", [
+            `Limit: ${config.searchLimit ?? 10}`,
+            `Graph boost: ${config.searchGraphBoost ?? true}`,
+          ]);
+          if (sub?.startsWith("Limit")) {
+            const val = await ctx.ui.input("Search result limit:", String(config.searchLimit ?? 10));
+            if (val) {
+              config.searchLimit = parseInt(val) || 10;
+              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
+              ctx.ui.notify(`Set searchLimit = ${config.searchLimit}`, "info");
+            }
+          } else if (sub?.startsWith("Graph boost")) {
+            config.searchGraphBoost = !(config.searchGraphBoost ?? true);
             await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-            ctx.ui.notify(`Set searchLimit = ${config.searchLimit}`, "info");
+            ctx.ui.notify(`Set searchGraphBoost = ${config.searchGraphBoost}`, "info");
           }
         } else if (choice.startsWith("[Lint]")) {
           const sub = await ctx.ui.select("Lint Settings", [

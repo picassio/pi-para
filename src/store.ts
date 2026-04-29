@@ -26,6 +26,7 @@ export interface WikiSearchOptions {
   category?: ParaCategory;
   limit?: number;
   includeArchives?: boolean; // default false
+  graphBoost?: boolean; // default true — 1-hop wikilink expansion
 }
 
 export interface WikiSearchResult {
@@ -184,7 +185,7 @@ export async function searchWiki(
     limit: fetchLimit,
     collection: "wiki",
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    graphBoost: true,
+    graphBoost: opts.graphBoost ?? true,
   });
 
   const results: WikiSearchResult[] = [];

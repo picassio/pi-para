@@ -275,6 +275,7 @@ function createQueryExecute(
   _wikiDir: string,
   store: QMDStore,
   getScope: () => ProjectScope,
+  getGraphBoost?: () => boolean,
 ) {
   return async (
     params: { query: string; global?: boolean; category?: ParaCategory; limit?: number },
@@ -285,6 +286,7 @@ function createQueryExecute(
       global: params.global,
       category: params.category,
       limit: params.limit,
+      graphBoost: getGraphBoost?.() ?? true,
     }, scope);
 
     if (result.results.length === 0) {
@@ -873,9 +875,10 @@ export function registerTools(
   store: QMDStore,
   getScope: () => ProjectScope,
   markDirty: () => void,
+  getGraphBoost?: () => boolean,
 ): void {
   const ingestExec = createIngestExecute(wikiDir, store, getScope);
-  const queryExec = createQueryExecute(wikiDir, store, getScope);
+  const queryExec = createQueryExecute(wikiDir, store, getScope, getGraphBoost);
   const writeExec = createWriteExecute(wikiDir, store, getScope, markDirty);
   const readExec = createReadExecute(wikiDir);
   const moveExec = createMoveExecute(wikiDir, store, markDirty);

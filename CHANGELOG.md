@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.2] — 2026-04-29
+
+### Added
+- **Configurable graph-boosted search** — `searchGraphBoost` setting in `config.json`
+  - Previously hardcoded to `true` in `store.ts`
+  - Now controllable via `/wiki-settings` → `[Search]` → `Graph boost: true/false`
+  - Threads through the full pipeline: `config` → `registerTools` → `createQueryExecute` → `queryWiki` → `searchWiki` → `store.searchLex`
+  - `WikiSearchOptions.graphBoost` and `QueryOptions.graphBoost` added to public interfaces
+  - Default remains `true` (1-hop wikilink expansion after BM25 search)
+- `/wiki-settings` `[Search]` now opens a submenu with `Limit` and `Graph boost` options
+
+### Changed
+- README updated: 8 tools (added `wiki_migrate`), 11 commands (added `/wiki-migrate`, `/wiki-project`), `searchGraphBoost` in config example, 301 tests
+
+## [0.4.1] — 2026-04-29
+
+### Added
+- Web UI graph: scope filter dropdown + max nodes slider
+
 ## [0.4.0] — 2026-04-29
 
 ### Added

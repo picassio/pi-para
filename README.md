@@ -14,19 +14,20 @@ Start pi — the extension loads automatically. Wiki directory is created on fir
 
 ## Features
 
-### Wiki Tools (7)
+### Wiki Tools (8)
 
 | Tool | Description |
 |------|-------------|
 | `wiki_ingest` | Ingest a URL, file, or text into the wiki |
-| `wiki_query` | Search the wiki with scope filtering + freshness indicators |
+| `wiki_query` | Search the wiki with scope filtering, graph boost, freshness indicators |
 | `wiki_write` | Create or update wiki pages |
 | `wiki_read` | Read a specific wiki page + freshness indicator |
 | `wiki_move` | Move pages between PARA categories |
 | `wiki_lint` | Run health checks and auto-fix |
 | `wiki_summarize` | Summarize pages, categories, or entire wiki |
+| `wiki_migrate` | Batch-migrate all pages to current schema version |
 
-### Commands (9)
+### Commands (11)
 
 | Command | Description |
 |---------|-------------|
@@ -37,8 +38,10 @@ Start pi — the extension loads automatically. Wiki directory is created on fir
 | `/wiki-scope` | Show or override project scope |
 | `/wiki-lint` | Run health checks |
 | `/wiki-summarize [target]` | Summarize wiki content |
-| `/wiki-settings` | Interactive settings (providers, daemon, web UI) |
+| `/wiki-settings` | Interactive settings (search, context, daemon, web UI, providers) |
 | `/wiki-daemon <cmd>` | Manage background capture daemon |
+| `/wiki-migrate` | Migrate all pages to current schema version |
+| `/wiki-project <name> <goal>` | Create or archive (`done`) a project page |
 
 ### Web Wiki UI
 
@@ -127,6 +130,7 @@ All settings via `/wiki-settings` interactive menu, or edit `~/.pi/wiki/config.j
 {
   "contextMaxTokens": 4000,
   "searchLimit": 10,
+  "searchGraphBoost": true,
   "lintAutoFix": true,
   "lintStaleDays": 90,
   "daemonModel": null,
@@ -168,7 +172,7 @@ git clone https://github.com/picassio/pi-para.git
 cd pi-para
 npm install
 npm run check    # TypeScript check
-npm test         # Run tests (265 tests)
+npm test         # Run tests (301 tests)
 npm run build    # Compile to dist/
 
 # Dev mode: symlink extension
