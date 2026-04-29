@@ -1,5 +1,5 @@
 ---
-name: pi-para-setup
+name: setup
 description: Set up pi-para PARA knowledge base extension. Installs qmd search engine, configures providers, starts background capture daemon. Use when user asks to install, set up, or configure pi-para wiki.
 ---
 
