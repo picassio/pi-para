@@ -55,7 +55,8 @@ Instructions:
    - projects/ ONLY for actual goals with end dates
 6. scope must be a kebab-case project name (NOT topic descriptions). tags must be kebab-case (no spaces).
 7. Always add [[wikilinks]] and a ## Connections section linking related pages
-8. Flag any contradictions with existing wiki content in Open Questions`;
+8. Flag any contradictions with existing wiki content in Open Questions
+9. When updating existing pages with new information, check whether existing Key Facts are still accurate in light of the new source. If the new source contradicts existing facts, update them and note the change in Open Questions.`;
 
 // -- Query Prompts -----------------------------------------------------------
 
@@ -68,7 +69,14 @@ Instructions:
 - Cite specific pages using [[page-slug]] references
 - Note gaps or areas where the wiki lacks information
 - If the synthesized answer reveals new knowledge not already captured in the wiki, file it as a new page via wiki_write
-- Be concise and factual`;
+- Be concise and factual
+
+FRESHNESS VERIFICATION (critical):
+- Each result shows an "Updated" timestamp and an age indicator (e.g. "⚠️ STALE — 45 days old"). Treat pages not updated in >14 days with healthy skepticism.
+- When a wiki page makes claims about code, configs, file paths, ports, API endpoints, or architecture — and the page is >14 days old — VERIFY by checking the actual source (read the file, run a command) before trusting the wiki.
+- When you discover a wiki page contains outdated or incorrect information, IMMEDIATELY fix it with wiki_write(mode: "edit") so future queries get correct answers. This is the self-healing loop.
+- If you cannot verify a claim (e.g. no file access, external service), tell the user: "Wiki says X (last updated DATE) — I could not verify this is still current."
+- Never silently pass along stale wiki content as fact. Either verify it or flag it.`;
 
 // -- Summarize Prompts -------------------------------------------------------
 

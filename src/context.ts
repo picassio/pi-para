@@ -18,6 +18,7 @@ import type {
 import type { ProjectScope } from "./scope.js";
 import { readIndex, readSchema, listPages, readPage } from "./wiki.js";
 import { matchesScope } from "./scope.js";
+import { formatFreshness } from "./query.js";
 
 // -- Types ------------------------------------------------------------------
 
@@ -152,6 +153,7 @@ export async function buildContext(
 
     const summaryParts: string[] = [];
     const titleFallbacks: string[] = [];
+    const now = Date.now();
 
     for (const ref of scopePages) {
       const page = await readPage(wikiDir, ref.category, ref.slug);
@@ -199,6 +201,9 @@ export async function buildContext(
   );
   parts.push(
     "When using wiki_write: use resources/ category for almost everything (architecture docs, debugging, patterns). scope must be a kebab-case project name. tags must be kebab-case, no spaces. Always add [[wikilinks]] in a ## Connections section. NEVER include API keys, tokens, or secrets — document WHERE they are stored, not the values."
+  );
+  parts.push(
+    "Wiki pages may be stale. When wiki_query or wiki_read returns a page with an AGING/STALE/VERY STALE freshness indicator, verify its claims against actual code or configs before trusting it. If you find incorrect information, fix it immediately with wiki_write(mode: 'edit'). This self-healing loop keeps the wiki accurate."
   );
 
   return header + "\n" + parts.join("\n\n") + "\n" + footer;

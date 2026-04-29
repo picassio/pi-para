@@ -82,6 +82,12 @@ Your maintenance tasks (in priority order):
    - Flag pages with very thin content for expansion
    - Flag pages with no ## Connections section
 
+6. STALENESS REVIEW
+   - Identify pages not updated in >30 days that make specific claims about code, file paths, configs, ports, or API endpoints
+   - These are high-risk for being outdated — add a note in Open Questions: "⚠️ This page has not been updated since [date]. Claims about [specific thing] should be verified."
+   - If you can determine from other pages or context that a claim is now wrong, fix it directly
+   - Pages about architecture decisions or historical events are less likely to go stale than pages about configs or deployment
+
 Rules:
 - Work systematically: list all pages first, then process in batches
 - For merges: preserve ALL information from both pages, combine into the better-structured one
@@ -324,6 +330,7 @@ export async function runMaintenance(
 1. Look for duplicate pages (same topic, different slugs) and merge them
 2. Find pages with 0 outgoing links and add relevant [[wikilinks]]
 3. Check for any category misuse or tag issues
+4. Review pages not updated in >30 days for staleness — add Open Questions warnings for pages making specific claims about code/configs/ports that may have changed
 Be thorough but conservative. Summarize what you changed at the end.`;
 
   try {

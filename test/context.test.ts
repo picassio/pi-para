@@ -202,7 +202,7 @@ describe("buildContext", () => {
     });
 
     // Should not exceed budget (chars / 4 estimate)
-    expect(result.length).toBeLessThanOrEqual(200 * 4 + 500); // buffer for tags + wiki reminder + guidelines
+    expect(result.length).toBeLessThanOrEqual(200 * 4 + 800); // buffer for tags + wiki reminder + guidelines + verification reminder
   });
 
   it("falls back to titles only when summaries exceed budget", async () => {
@@ -546,8 +546,8 @@ describe("setupContextInjection", () => {
     if (result?.systemPrompt) {
       // The wiki-context portion should be small
       const wikiPart = result.systemPrompt.replace(/^.*?(?=<wiki-context)/, "");
-      // 300 tokens * 4 chars = 1200 chars max, plus overhead for guidelines
-      expect(wikiPart.length).toBeLessThan(1900);
+      // 300 tokens * 4 chars = 1200 chars max, plus overhead for guidelines + verification reminder
+      expect(wikiPart.length).toBeLessThan(2200);
     }
   });
 });

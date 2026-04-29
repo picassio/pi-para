@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.2] — 2026-04-29
+
+### Added
+- **Wiki freshness verification system** — prevents LLM from blindly trusting stale wiki content
+  - `formatFreshness()` in `query.ts` computes age-based freshness tiers for every page
+  - 5 tiers: ✅ FRESH (<7d), ✅ Recent (7-14d), ⚠️ AGING (14-30d), ⚠️ STALE (30-90d), 🚨 VERY STALE (>90d)
+  - `wiki_query` results now include `Updated: ... | ⚠️ STALE — 45 days old` per result
+  - `wiki_read` output includes freshness indicator in header line
+  - `QUERY_PROMPT` gains "FRESHNESS VERIFICATION (critical)" section with 5 verification rules
+  - `wiki_query` and `wiki_read` `promptGuidelines` instruct LLM to verify AGING/STALE pages
+  - Context injection adds system prompt reminder about the self-healing loop
+  - Maintenance agent gains task #6: staleness review for pages >30 days old making code/config claims
+  - `INGEST_PROMPT` gains rule #9: check existing Key Facts accuracy when updating pages
+- **Self-healing loop** — when LLM discovers wiki content is wrong during verification, it fixes the page immediately with `wiki_write(mode: 'edit')`, so future queries get correct answers
+
 ## [0.3.0] — 2026-04-28
 
 ### Added

@@ -94,20 +94,52 @@ export async function queryWiki(
 /**
  * Format query results as a readable text block.
  * Useful for building LLM prompts or display.
+ *
+ * Includes freshness indicators so the LLM knows which pages to trust
+ * vs. which need verification against current code/state.
  */
 export function formatQueryResults(results: WikiSearchResult[]): string {
   if (results.length === 0) return "No results found.";
 
+  const now = Date.now();
+
   return results
     .map((r, i) => {
       const fm = r.frontmatter;
+      const freshness = formatFreshness(fm.updated, now);
       return [
         `### Result ${i + 1}: ${fm.title} (${r.page.path})`,
         `PARA: ${fm.para} | Scope: ${fm.scope.join(", ")} | Tags: ${fm.tags.join(", ")}`,
+        `Updated: ${fm.updated} | ${freshness}`,
         `Score: ${r.score.toFixed(3)}`,
         "",
         r.snippet,
       ].join("\n");
     })
     .join("\n\n");
+}
+
+// -- Freshness helpers -------------------------------------------------------
+
+/**
+ * Compute a human-readable freshness indicator from the page's `updated` date.
+ *
+ * - < 7 days  → "✅ FRESH"
+ * - 7-14 days → "✅ Recent — N days old"
+ * - 14-30 days → "⚠️ AGING — N days old — verify claims about code/configs"
+ * - 30-90 days → "⚠️ STALE — N days old — verify before trusting"
+ * - > 90 days  → "🚨 VERY STALE — N days old — likely outdated, verify everything"
+ */
+export function formatFreshness(updatedISO: string, nowMs: number): string {
+  const updatedMs = Date.parse(updatedISO);
+  if (isNaN(updatedMs)) return "❓ Unknown freshness (no valid date)";
+
+  const ageDays = Math.floor((nowMs - updatedMs) / (1000 * 60 * 60 * 24));
+
+  if (ageDays < 0) return "✅ FRESH";
+  if (ageDays < 7) return "✅ FRESH";
+  if (ageDays < 14) return `✅ Recent — ${ageDays} days old`;
+  if (ageDays < 30) return `⚠️ AGING — ${ageDays} days old — verify claims about code/configs`;
+  if (ageDays < 90) return `⚠️ STALE — ${ageDays} days old — verify before trusting`;
+  return `🚨 VERY STALE — ${ageDays} days old — likely outdated, verify everything`;
 }

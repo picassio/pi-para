@@ -16,7 +16,7 @@ import { Type } from "typebox";
 
 import type { ProjectScope } from "./scope.js";
 import { resolveSource, truncateSource, detectSourceType } from "./ingest.js";
-import { queryWiki as queryWikiLib, formatQueryResults } from "./query.js";
+import { queryWiki as queryWikiLib, formatQueryResults, formatFreshness } from "./query.js";
 import { reindex } from "./store.js";
 import {
   readPage,
@@ -568,16 +568,19 @@ function createReadExecute(wikiDir: string) {
   return async (
     params: { path: string },
   ): Promise<AgentToolResult<WikiReadDetails>> => {
+    const now = Date.now();
+
     // Try parsing as category/slug path
     const parsed = parsePagePath(params.path);
     if (parsed) {
       const page = await readPage(wikiDir, parsed.category, parsed.slug);
       if (page) {
         const fm = page.frontmatter;
+        const freshness = formatFreshness(fm.updated, now);
         const header = [
           `# ${fm.title}`,
           `PARA: ${fm.para} | Scope: ${fm.scope.join(", ")} | Tags: ${fm.tags.join(", ")}`,
-          `Created: ${fm.created} | Updated: ${fm.updated}`,
+          `Created: ${fm.created} | Updated: ${fm.updated} | ${freshness}`,
           fm.sources.length > 0 ? `Sources: ${fm.sources.join(", ")}` : "",
           fm.links.length > 0 ? `Links: ${fm.links.map((l) => `[[${l}]]`).join(", ")}` : "",
         ]
@@ -599,10 +602,11 @@ function createReadExecute(wikiDir: string) {
         const page = await readPage(wikiDir, ref.category, ref.slug);
         if (page) {
           const fm = page.frontmatter;
+          const freshness = formatFreshness(fm.updated, now);
           const header = [
             `# ${fm.title}`,
             `PARA: ${fm.para} | Scope: ${fm.scope.join(", ")} | Tags: ${fm.tags.join(", ")}`,
-            `Created: ${fm.created} | Updated: ${fm.updated}`,
+            `Created: ${fm.created} | Updated: ${fm.updated} | ${freshness}`,
             fm.sources.length > 0 ? `Sources: ${fm.sources.join(", ")}` : "",
             fm.links.length > 0 ? `Links: ${fm.links.map((l) => `[[${l}]]`).join(", ")}` : "",
           ]
@@ -920,6 +924,7 @@ export function registerTools(
     promptGuidelines: [
       "Use wiki_query BEFORE answering questions that might have relevant context in the wiki — architecture decisions, past debugging solutions, project conventions, or domain knowledge.",
       "Use wiki_query when the user asks about something you previously discussed or captured in the wiki.",
+      "Wiki results include freshness indicators (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE and makes claims about code, files, configs, ports, or APIs — verify against the actual source before trusting. If you find the wiki is wrong, fix it immediately with wiki_write(mode: 'edit').",
     ],
     parameters: WikiQueryParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -1008,8 +1013,11 @@ export function registerTools(
     label: "Wiki Read",
     description:
       "Read a specific wiki page by path (e.g. 'projects/auth-refactor') " +
-      "or by title. Returns the full page content with frontmatter metadata.",
-    promptSnippet: "Read a wiki page by path or title",
+      "or by title. Returns the full page content with frontmatter metadata and a freshness indicator.",
+    promptSnippet: "Read a wiki page by path or title. Includes freshness indicator — verify STALE pages against actual code before trusting.",
+    promptGuidelines: [
+      "wiki_read results include a freshness indicator (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE, verify claims about code, configs, or APIs against the actual source before trusting. Fix incorrect wiki pages with wiki_write(mode: 'edit').",
+    ],
     parameters: WikiReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: reading...");

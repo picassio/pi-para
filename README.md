@@ -19,9 +19,9 @@ Start pi — the extension loads automatically. Wiki directory is created on fir
 | Tool | Description |
 |------|-------------|
 | `wiki_ingest` | Ingest a URL, file, or text into the wiki |
-| `wiki_query` | Search the wiki with scope filtering |
+| `wiki_query` | Search the wiki with scope filtering + freshness indicators |
 | `wiki_write` | Create or update wiki pages |
-| `wiki_read` | Read a specific wiki page |
+| `wiki_read` | Read a specific wiki page + freshness indicator |
 | `wiki_move` | Move pages between PARA categories |
 | `wiki_lint` | Run health checks and auto-fix |
 | `wiki_summarize` | Summarize pages, categories, or entire wiki |
@@ -101,6 +101,23 @@ Auto-starts via systemd on Linux — run `./setup.sh` once for daemon service se
 2. **On /quit** — session registered in `.completed-sessions` (instant, <10ms)
 3. **Background** — daemon picks up session, Agent explores with tools, writes wiki pages
 4. **Next session** — new wiki pages appear in context injection
+
+### Freshness Verification
+
+Every `wiki_query` and `wiki_read` result includes a freshness indicator based on the page's last-updated date:
+
+| Age | Indicator | LLM Behavior |
+|-----|-----------|---------------|
+| < 7 days | ✅ FRESH | Trust normally |
+| 7-14 days | ✅ Recent | Trust normally |
+| 14-30 days | ⚠️ AGING | Verify claims about code/configs before trusting |
+| 30-90 days | ⚠️ STALE | Verify before trusting |
+| > 90 days | 🚨 VERY STALE | Likely outdated, verify everything |
+
+The LLM is instructed to:
+- **Verify** stale claims by checking actual code, configs, or files
+- **Self-heal** — fix incorrect wiki pages via `wiki_write(mode: 'edit')` when it discovers they're wrong
+- **Flag uncertainty** — tell the user when a claim can't be verified (e.g. external services)
 
 ### Configuration
 
