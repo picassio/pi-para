@@ -471,6 +471,7 @@ async function handleGraph(
 ): Promise<void> {
   const maxNodesParam = parseInt(url.searchParams.get("maxNodes") ?? "100", 10);
   const maxNodes = Math.max(1, isNaN(maxNodesParam) ? 100 : maxNodesParam);
+  const scopeParam = url.searchParams.get("scope"); // e.g. ?scope=pi-para
 
   const refs = await listPages(wikiDir);
   const slugToRef = new Map<string, PageRef>();
@@ -478,16 +479,25 @@ async function handleGraph(
     slugToRef.set(ref.slug, ref);
   }
 
-  // Build all nodes and edges first
+  // Read all pages and apply scope filter
+  const pageData = new Map<string, { ref: PageRef; page: NonNullable<Awaited<ReturnType<typeof readPage>>> }>();
+  for (const ref of refs) {
+    const page = await readPage(wikiDir, ref.category, ref.slug);
+    if (!page) continue;
+    // Scope filter: keep page if no filter, or if page scope includes the filter value or "global"
+    if (scopeParam && !page.frontmatter.scope.includes(scopeParam) && !page.frontmatter.scope.includes("global")) {
+      continue;
+    }
+    pageData.set(ref.slug, { ref, page });
+  }
+
+  // Build all nodes and edges from filtered pages
   const allNodes: (GraphNode & { connectionCount: number })[] = [];
   const allEdges: GraphEdge[] = [];
   const seenEdges = new Set<string>();
   const connectionCounts = new Map<string, number>();
 
-  for (const ref of refs) {
-    const page = await readPage(wikiDir, ref.category, ref.slug);
-    if (!page) continue;
-
+  for (const { ref, page } of pageData.values()) {
     const nodeId = `${ref.category}/${ref.slug}`;
 
     // Collect wikilinks from body and frontmatter
@@ -498,6 +508,8 @@ async function handleGraph(
     for (const link of allLinks) {
       const targetRef = slugToRef.get(link);
       if (!targetRef) continue; // skip broken links
+      // Only include edges to pages that passed scope filter
+      if (!pageData.has(link)) continue;
 
       const targetId = `${targetRef.category}/${targetRef.slug}`;
       const edgeKey = `${nodeId}->${targetId}`;

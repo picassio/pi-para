@@ -1076,6 +1076,7 @@ function App() {
   const [logEntries, setLogEntries] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [graphData, setGraphData] = useState({ nodes: [], edges: [] });
+  const [maxNodes, setMaxNodes] = useState(100);
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState("");
   const [moveTarget, setMoveTarget] = useState(null);
@@ -1095,6 +1096,9 @@ function App() {
   }, []);
 
   useEffect(() => { loadPages(); }, [loadPages]);
+
+  // Reload graph when scope filter changes while graph view is active
+  useEffect(() => { if (view === "graph") loadGraph(maxNodes); }, [scopeFilter]);
 
   const openPage = async (cat, slug) => {
     setLoadingKey("page", true);
@@ -1167,9 +1171,14 @@ function App() {
     setLoadingKey("sessions", false);
   };
 
-  const loadGraph = async () => {
+  const loadGraph = async (nodes) => {
     setLoadingKey("graph", true);
-    const r = await fetch(API + "/graph");
+    const params = [];
+    if (scopeFilter !== "all") params.push("scope=" + encodeURIComponent(scopeFilter));
+    const mn = nodes ?? maxNodes;
+    if (mn !== 100) params.push("maxNodes=" + mn);
+    const qs = params.length ? "?" + params.join("&") : "";
+    const r = await fetch(API + "/graph" + qs);
     if (r.ok) setGraphData(await r.json());
     setLoadingKey("graph", false);
   };
@@ -1285,6 +1294,7 @@ function App() {
         h("button", {
           className: "nav-btn" + (view === "graph" ? " active" : ""),
           onClick: () => { setView("graph"); loadGraph(); },
+
           "aria-label": "Graph view"
         }, h(Icon, { name: "network" }), h("span", { className: "nav-label" }, "Graph")),
 
@@ -1343,7 +1353,7 @@ function App() {
           setMoveTarget, openPage, loading, setView
         }),
         view === "search" && h(SearchView, { results: searchResults, openPage, query: searchQuery, loading: loading.search }),
-        view === "graph" && h(GraphView, { data: graphData, openPage, loading: loading.graph }),
+        view === "graph" && h(GraphView, { data: graphData, openPage, loading: loading.graph, maxNodes, onMaxNodesChange: (n) => { setMaxNodes(n); loadGraph(n); } }),
         view === "log" && h(LogView, { entries: logEntries, loading: loading.log }),
         view === "sessions" && h(SessionsView, { sessions, loading: loading.sessions })
         )
@@ -1626,7 +1636,7 @@ function SearchView({ results, openPage, query, loading }) {
 /* ============================================================
    GRAPH VIEW
    ============================================================ */
-function GraphView({ data, openPage, loading }) {
+function GraphView({ data, openPage, loading, onMaxNodesChange, maxNodes }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -1705,8 +1715,20 @@ function GraphView({ data, openPage, loading }) {
 
   return h("div", { className: "content" },
     h("h1", null, "Knowledge Graph"),
-    h("p", { style: { color: "var(--text-secondary)", marginBottom: "var(--sp-3)" } },
-      data.nodes.length + " pages \u00b7 " + data.edges.length + " connections"
+    h("div", { style: { display: "flex", alignItems: "center", gap: "var(--sp-4)", marginBottom: "var(--sp-3)", flexWrap: "wrap" } },
+      h("p", { style: { color: "var(--text-secondary)", margin: 0 } },
+        data.nodes.length + " pages \u00b7 " + data.edges.length + " connections"
+      ),
+      h("label", { style: { display: "flex", alignItems: "center", gap: "var(--sp-2)", fontSize: "0.85rem", color: "var(--text-secondary)" } },
+        "Max nodes",
+        h("input", {
+          type: "range", min: 10, max: 200, step: 10, value: maxNodes,
+          onChange: (e) => onMaxNodesChange(parseInt(e.target.value)),
+          style: { width: 120 },
+          "aria-label": "Maximum nodes to display"
+        }),
+        h("span", { style: { minWidth: 30, textAlign: "right" } }, maxNodes)
+      )
     ),
 
     loading && h("div", { style: { textAlign: "center", padding: "var(--sp-8)" } },
