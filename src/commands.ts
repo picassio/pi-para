@@ -752,7 +752,8 @@ ${goal} — verified and complete.
               if (providerChoice === "auto (best available)") {
                 config.daemonModel = null;
                 await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-                ctx.ui.notify("Set daemonModel = auto", "info");
+                try { execSync("systemctl --user restart pi-para-daemon 2>/dev/null"); } catch {}
+                ctx.ui.notify("Set daemonModel = auto (daemon restarted)", "info");
               } else if (providerChoice) {
                 // Show models for selected provider
                 const models = getModels(providerChoice as any)
@@ -768,7 +769,8 @@ ${goal} — verified and complete.
                   const modelId = modelChoice.split(" (")[0];
                   config.daemonModel = `${providerChoice}/${modelId}`;
                   await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-                  ctx.ui.notify(`Set daemonModel = ${config.daemonModel}`, "info");
+                  try { execSync("systemctl --user restart pi-para-daemon 2>/dev/null"); } catch {}
+                  ctx.ui.notify(`Set daemonModel = ${config.daemonModel} (daemon restarted)`, "info");
                 }
               }
             }
@@ -780,7 +782,8 @@ ${goal} — verified and complete.
             );
             config.daemonModel = val?.trim() || null;
             await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-            ctx.ui.notify(`Set daemonModel = ${config.daemonModel ?? "auto"}`, "info");
+            try { const { execSync: exec } = await import("node:child_process"); exec("systemctl --user restart pi-para-daemon 2>/dev/null"); } catch {}
+            ctx.ui.notify(`Set daemonModel = ${config.daemonModel ?? "auto"} (daemon restarted)`, "info");
           }
         } else if (choice.startsWith("[WebWiki]")) {
           const webWiki = (config as any).webWiki ?? { enabled: false, host: "0.0.0.0", port: 10973 };

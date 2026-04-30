@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.5] — 2026-04-30
+
+### Fixed
+- **Daemon model change now auto-restarts daemon** — changing the daemon model via `/wiki-settings` → `[Daemon]` now automatically runs `systemctl --user restart pi-para-daemon` so the new model takes effect immediately
+- **qmd FK constraint fix (v2.3.2)** — `deleteInactiveDocuments` now cleans up `document_links` and `document_metadata` before deleting inactive docs, fixing the second FK violation that blocked store opening
+
 ## [0.4.4] — 2026-04-29
 
 ### Fixed
