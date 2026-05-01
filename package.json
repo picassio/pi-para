@@ -1,6 +1,6 @@
 {
   "name": "@picassio/pi-para",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "PARA Knowledge Base Extension for pi — persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
@@ -86,7 +86,7 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc -p tsconfig.json && mkdir -p dist/webui/client/dist && cp src/webui/client/dist/index.html dist/webui/client/dist/index.html",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/webui/client/dist && cp src/webui/client/dist/index.html dist/webui/client/dist/index.html && mkdir -p dist/gepa/optimized && cp -r src/gepa/optimized/*.txt dist/gepa/optimized/ 2>/dev/null || true",
     "check": "tsc --noEmit",
     "test": "vitest --run",
     "fix-links": "tsx src/scripts/bulk-link-fix.ts",

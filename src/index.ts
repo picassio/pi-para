@@ -82,7 +82,7 @@ function getDefaultConfig(): ParaConfig {
       port: 10973,
     },
     gepa: {
-      useOptimized: false,
+      useOptimized: true,
     },
   };
 }

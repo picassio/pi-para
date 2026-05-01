@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1] — 2026-05-01
+
+### Added
+- **Bundled GEPA-optimized prompts** — ship pre-optimized `capture-prompt` with the package (32.4% improvement over baseline: 0.582 → 0.770)
+- `getPrompt()` resolution order: user-generated → bundled optimized → original constant
+- `gepa.useOptimized` defaults to `true` so users get optimized prompts out of the box
+- Build copies `src/gepa/optimized/*.txt` into `dist/gepa/optimized/` automatically
+
 ## [0.5.0] — 2026-05-01
 
 ### Added

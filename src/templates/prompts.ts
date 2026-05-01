@@ -5,13 +5,17 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
 /**
  * Load a prompt by name — returns the GEPA-optimized version if
- * config.gepa.useOptimized is true and an optimized file exists,
- * otherwise returns the original constant.
+ * config.gepa.useOptimized is true, otherwise returns the original.
+ *
+ * Resolution order:
+ * 1. User-generated optimized prompt at ~/.pi/wiki/gepa/optimized/{name}.txt
+ * 2. Bundled optimized prompt shipped with the package (src/gepa/optimized/{name}.txt)
+ * 3. Original constant from this file
  */
 export function getPrompt(name: string): string {
   const original = _originals()[name];
@@ -21,11 +25,22 @@ export function getPrompt(name: string): string {
     if (!existsSync(cfgPath)) return original;
     const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
     if (!cfg.gepa?.useOptimized) return original;
-    const optPath = join(homedir(), ".pi", "wiki", "gepa", "optimized", `${name}.txt`);
-    if (!existsSync(optPath)) return original;
-    const content = readFileSync(optPath, "utf-8").trim();
-    return content.length > 50 ? content : original;
-  } catch { return original; }
+
+    // 1. Check user-generated optimized prompt
+    const userPath = join(homedir(), ".pi", "wiki", "gepa", "optimized", `${name}.txt`);
+    if (existsSync(userPath)) {
+      const content = readFileSync(userPath, "utf-8").trim();
+      if (content.length > 50) return content;
+    }
+
+    // 2. Check bundled optimized prompt (shipped with package)
+    const bundledPath = join(dirname(new URL(import.meta.url).pathname), "..", "gepa", "optimized", `${name}.txt`);
+    if (existsSync(bundledPath)) {
+      const content = readFileSync(bundledPath, "utf-8").trim();
+      if (content.length > 50) return content;
+    }
+  } catch { /* fall through to original */ }
+  return original;
 }
 
 function _originals(): Record<string, string> {
