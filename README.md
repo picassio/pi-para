@@ -61,6 +61,74 @@ Access at `http://<LAN-IP>:10973`. Features:
 - Activity log and session digests
 - Mobile-first responsive design, dark/light theme
 
+### GEPA Prompt Optimizer
+
+Automatically optimize all pi-para prompts, tool instructions, and skill guidelines using [DSPy GEPA](https://arxiv.org/abs/2507.19457) (Genetic-Pareto optimizer). Runs via `uv` with custom LLM providers — no litellm.
+
+```bash
+# List all 22 optimization targets
+pi-para-daemon gepa targets
+
+# Optimize a single target
+pi-para-daemon gepa optimize --target capture-prompt --auto light
+
+# Optimize all targets
+pi-para-daemon gepa optimize --auto light
+
+# Use a specific model
+pi-para-daemon gepa optimize --target skill-para --model anthropic/claude-sonnet-4-20250514
+
+# See results
+pi-para-daemon gepa list
+
+# Compare original vs optimized
+pi-para-daemon gepa compare --target capture-prompt
+```
+
+**How it works:**
+
+1. TypeScript extracts all prompt/tool/skill texts from source files
+2. Calls `uv run scripts/gepa/optimize.py` with API keys from `~/.pi/agent/auth.json`
+3. Python builds a trainset from real wiki pages (93 pages → 30 train / 20 val)
+4. DSPy GEPA evolves each instruction using a lightweight proxy module (1 LLM call per eval, not 10-50)
+5. LLM-as-judge metric scores on 6 dimensions: structure, PARA compliance, cross-references, security, completeness, actionability
+6. Optimized prompts saved to `~/.pi/wiki/gepa/optimized/`
+
+**22 optimization targets:**
+
+| Category | Targets |
+|----------|--------|
+| Prompt templates (12) | System, ingest, query, capture (×3), maintenance, processor, summarize, iterative, overview, lint |
+| Tool instructions (8) | wiki_ingest, wiki_query, wiki_write, wiki_read, wiki_move, wiki_lint, wiki_migrate, wiki_summarize |
+| Skills (2) | para (active PARA workflow), setup (installation guide) |
+
+**LLM providers** (custom `dspy.BaseLM` subclasses, no litellm):
+
+| Provider | Auth | Notes |
+|----------|------|-------|
+| Anthropic | OAuth token from `auth.json` | Claude Code billing headers + user-agent |
+| MiniMax | API key | Via Anthropic-compatible API |
+| OpenRouter | API key | Via OpenAI-compatible API |
+
+**Deploy optimized prompts:**
+
+```json
+// ~/.pi/wiki/config.json
+{ "gepa": { "useOptimized": true } }
+```
+
+When enabled, `getPrompt(name)` loads optimized versions at runtime. Originals are always preserved.
+
+**Budget presets:**
+
+| Preset | Rollouts | Time estimate | When to use |
+|--------|----------|---------------|-------------|
+| `light` | ~460 | 1-2 hours | Quick sanity check |
+| `medium` | ~1500 | 4-6 hours | Everyday optimization |
+| `heavy` | ~5000 | 12-24 hours | Final tuning |
+
+**Prerequisites:** `uv` (Python package manager). DSPy + anthropic SDK installed automatically on first run.
+
 ### Background Capture Daemon
 
 Processes session files in the background after you quit pi:
@@ -83,7 +151,7 @@ Auto-starts via systemd on Linux — run `./setup.sh` once for daemon service se
 
 ```
 ~/.pi/wiki/
-├── config.json        # all settings (context, search, daemon, web UI)
+├── config.json        # all settings (context, search, daemon, web UI, gepa)
 ├── schema.md          # PARA conventions
 ├── index.md           # page catalog (auto-rebuilt)
 ├── log.md             # activity log
@@ -95,7 +163,25 @@ Auto-starts via systemd on Linux — run `./setup.sh` once for daemon service se
 ├── areas/             # ongoing responsibilities
 ├── resources/         # reference material
 ├── archives/          # completed/deprecated
-└── raw/               # immutable source material
+├── raw/               # immutable source material
+└── gepa/              # GEPA optimizer state
+    ├── input/         # targets.json (generated per run)
+    ├── output/        # results.json (GEPA output)
+    ├── optimized/     # deployed optimized prompts (*.txt)
+    └── history/       # version history per target
+```
+
+**Python scripts (GEPA optimizer):**
+
+```
+scripts/gepa/
+├── pyproject.toml     # uv project (dspy, anthropic, openai deps)
+├── optimize.py        # Main entry — runs DSPy GEPA
+├── lm_providers.py    # Custom BaseLM: AnthropicOAuthLM, MiniMaxLM, OpenRouterLM
+├── program.py         # PromptProxy DSPy Module (1 LLM call per eval)
+├── metric.py          # LLM-as-judge metric (6 dimensions)
+├── dataset.py         # Build train/val from real wiki pages
+└── wiki_reader.py     # Read wiki pages from disk
 ```
 
 ### How it works
@@ -134,7 +220,8 @@ All settings via `/wiki-settings` interactive menu, or edit `~/.pi/wiki/config.j
   "lintAutoFix": true,
   "lintStaleDays": 90,
   "daemonModel": null,
-  "webWiki": { "enabled": true, "host": "0.0.0.0", "port": 10973 }
+  "webWiki": { "enabled": true, "host": "0.0.0.0", "port": 10973 },
+  "gepa": { "useOptimized": false }
 }
 ```
 

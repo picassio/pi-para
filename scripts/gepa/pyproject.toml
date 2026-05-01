@@ -1,0 +1,19 @@
+[project]
+name = "pi-para-gepa"
+version = "0.1.0"
+description = "GEPA optimizer for pi-para prompts, tools, and skills"
+requires-python = ">=3.11"
+dependencies = [
+    "dspy>=2.6.0",
+    "anthropic>=0.52.0",
+    "openai>=1.30.0",
+    "pyyaml>=6.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lm_providers", "wiki_reader", "dataset", "program", "metric", "optimize"]
+include = ["*.py"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

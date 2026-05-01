@@ -1,6 +1,47 @@
 /**
  * LLM prompt templates for ingest, query, lint, capture, and summarize operations.
+ *
+ * Use getPrompt(name) to load the GEPA-optimized version (if deployed) or the original.
  */
+
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+/**
+ * Load a prompt by name — returns the GEPA-optimized version if
+ * config.gepa.useOptimized is true and an optimized file exists,
+ * otherwise returns the original constant.
+ */
+export function getPrompt(name: string): string {
+  const original = _originals()[name];
+  if (!original) return "";
+  try {
+    const cfgPath = join(homedir(), ".pi", "wiki", "config.json");
+    if (!existsSync(cfgPath)) return original;
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    if (!cfg.gepa?.useOptimized) return original;
+    const optPath = join(homedir(), ".pi", "wiki", "gepa", "optimized", `${name}.txt`);
+    if (!existsSync(optPath)) return original;
+    const content = readFileSync(optPath, "utf-8").trim();
+    return content.length > 50 ? content : original;
+  } catch { return original; }
+}
+
+function _originals(): Record<string, string> {
+  return {
+    "wiki-system-prompt": WIKI_SYSTEM_PROMPT,
+    "ingest-prompt": INGEST_PROMPT,
+    "query-prompt": QUERY_PROMPT,
+    "capture-system-prompt": CAPTURE_SYSTEM_PROMPT,
+    "capture-prompt": CAPTURE_PROMPT,
+    "explicit-capture-prompt": EXPLICIT_CAPTURE_PROMPT,
+    "summarize-system-prompt": SUMMARIZE_SYSTEM_PROMPT,
+    "iterative-update-prompt": ITERATIVE_UPDATE_PROMPT,
+    "overview-prompt": OVERVIEW_PROMPT,
+    "lint-prompt": LINT_PROMPT,
+  };
+}
 
 // -- Wiki System Prompt (standalone agent) ------------------------------------
 

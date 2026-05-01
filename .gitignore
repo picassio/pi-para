@@ -1,5 +1,9 @@
 node_modules/
 dist/
+__pycache__/
+*.pyc
+scripts/gepa/.venv/
+scripts/gepa/uv.lock
 *.tsbuildinfo
 .qmd.sqlite
 .qmd.sqlite-journal

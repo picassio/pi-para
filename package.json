@@ -1,6 +1,6 @@
 {
   "name": "@picassio/pi-para",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "description": "PARA Knowledge Base Extension for pi — persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
@@ -78,6 +78,7 @@
   "files": [
     "dist",
     "src",
+    "scripts",
     "CHANGELOG.md",
     "README.md",
     "skills",

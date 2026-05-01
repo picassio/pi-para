@@ -57,6 +57,11 @@ interface ParaConfig {
     host: string;
     port: number;
   };
+  /** GEPA prompt optimizer settings */
+  gepa: {
+    /** When true, load optimized prompts from ~/.pi/wiki/gepa/optimized/ at runtime. */
+    useOptimized: boolean;
+  };
 }
 
 function getDefaultConfig(): ParaConfig {
@@ -75,6 +80,9 @@ function getDefaultConfig(): ParaConfig {
       enabled: false,
       host: "0.0.0.0",
       port: 10973,
+    },
+    gepa: {
+      useOptimized: false,
     },
   };
 }

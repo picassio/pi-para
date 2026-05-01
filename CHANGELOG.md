@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0] — 2026-05-01
+
+### Added
+- **GEPA prompt optimizer** — automatically optimize all pi-para prompts, tool instructions, and skill guidelines using DSPy GEPA (Genetic-Pareto optimizer)
+  - 22 optimization targets: 12 prompt templates, 8 tool instructions, 2 skills
+  - Runs via `uv` with custom `dspy.BaseLM` subclasses — no litellm dependency
+  - Custom `AnthropicOAuthLM` with Claude Code billing headers and user-agent for free OAuth usage
+  - Custom `MiniMaxLM` (Anthropic-compatible API) and `OpenRouterLM` (OpenAI-compatible API)
+  - LLM-as-judge metric scoring on 6 dimensions: structure, PARA compliance, cross-references, security, completeness, actionability
+  - Trainset built from real wiki pages (no synthetic data)
+  - Side-by-side deployment: optimized prompts saved to `~/.pi/wiki/gepa/optimized/`, toggled via `config.gepa.useOptimized`
+  - API keys extracted from `~/.pi/agent/auth.json` and passed as env vars to `uv` subprocess
+  - `PromptProxy` DSPy Module: 1 LLM call per eval instead of full agent loop (10-50 calls)
+  - Version history per target in `~/.pi/wiki/gepa/history/`
+- **CLI commands**: `pi-para-daemon gepa optimize|list|targets|compare`
+- **`getPrompt(name)`** function in `src/templates/prompts.ts` — loads GEPA-optimized version at runtime when `config.gepa.useOptimized` is true
+- **`gepa` config section** in `ParaConfig` with `useOptimized` toggle
+
 ## [0.4.5] — 2026-04-30
 
 ### Fixed
