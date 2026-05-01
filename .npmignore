@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+scripts/gepa/.venv/
+scripts/gepa/uv.lock
+src/python/__pycache__/
+.qmd.sqlite*
+*.tsbuildinfo
+test/
+.git/
