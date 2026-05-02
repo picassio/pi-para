@@ -325,9 +325,10 @@ async function main() {
           try {
             await runGEPA({
               target: g("--target"),
-              model: g("--model"),
-              reflectionModel: g("--reflection-model"),
-              auto: (g("--auto") ?? "light") as "light" | "medium" | "heavy",
+              studentModel: g("--student-model") ?? g("--model"),
+              teacherModel: g("--teacher-model") ?? g("--reflection-model"),
+              judgeModel: g("--judge-model"),
+              auto: (g("--auto") ?? undefined) as "light" | "medium" | "heavy" | undefined,
               maxMetricCalls: g("--max-metric-calls") ? parseInt(g("--max-metric-calls")!) : undefined,
               threads: g("--threads") ? parseInt(g("--threads")!) : undefined,
               seed: g("--seed") ? parseInt(g("--seed")!) : undefined,
@@ -357,7 +358,30 @@ async function main() {
           break;
         }
         default:
-          console.log(`pi-para-daemon gepa — GEPA prompt optimizer\n\nSubcommands:\n  optimize   Run DSPy GEPA optimization via uv\n  list       Show optimized prompts\n  targets    List all optimization targets\n  compare    Compare original vs optimized\n\nOptions (optimize):\n  --target <name>   --model <provider/model>   --auto light|medium|heavy\n  --reflection-model <spec>   --threads <N>   --seed <N>`);
+          console.log(`pi-para-daemon gepa — GEPA prompt optimizer (DSPy GEPA via uv)
+
+Subcommands:
+  optimize   Run DSPy GEPA optimization
+  list       Show optimized prompts and scores
+  targets    List all 22 optimization targets
+  compare    Compare original vs optimized for a target
+
+Options (optimize):
+  --target <name>           Optimize only this target
+  --student-model <spec>    Student LM — runs proxy (default: anthropic/claude-sonnet-4-20250514)
+  --teacher-model <spec>    Teacher/reflection LM — proposes mutations (default: anthropic/claude-opus-4-6)
+  --judge-model <spec>      Judge LM — scores output (default: same as student)
+  --model <spec>            Shorthand for --student-model
+  --reflection-model <spec> Shorthand for --teacher-model
+  --auto light|medium|heavy Budget preset (default: light)
+  --max-metric-calls <N>    Override auto with explicit budget
+  --threads <N>             Parallel eval threads (default: 2)
+  --seed <N>                Random seed (default: 42)
+
+Config (persistent defaults in ~/.pi/wiki/config.json):
+  gepa.studentModel    gepa.teacherModel    gepa.judgeModel
+  gepa.auto            gepa.threads         gepa.seed
+  gepa.useOptimized    (toggle optimized prompts at runtime)`);
       }
       break;
     }

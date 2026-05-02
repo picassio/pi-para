@@ -46,7 +46,15 @@ interface GEPAOutput {
 
 export interface GEPAOptions {
   target?: string;
+  /** Student model — runs the proxy (fast, cheap). */
+  studentModel?: string;
+  /** Teacher/reflection model — proposes mutations (smart, creative). */
+  teacherModel?: string;
+  /** Judge model — scores outputs (fast, cheap). Default: same as student. */
+  judgeModel?: string;
+  /** Shorthand: sets studentModel (backward compat with --model flag) */
   model?: string;
+  /** Shorthand: sets teacherModel (backward compat with --reflection-model flag) */
   reflectionModel?: string;
   auto?: "light" | "medium" | "heavy";
   maxMetricCalls?: number;
@@ -187,11 +195,30 @@ export async function runGEPA(options: GEPAOptions = {}): Promise<GEPAOutput> {
   const scriptsDir = join(root, "scripts", "gepa");
   for (const d of [INPUT_DIR, OUTPUT_DIR, OPTIMIZED_DIR, HISTORY_DIR]) mkdirSync(d, { recursive: true });
 
+  // Load GEPA config from config.json (user-configurable defaults)
+  let gepaConfig: Record<string, unknown> = {};
+  try {
+    const cfg = JSON.parse(readFileSync(join(WIKI_DIR, "config.json"), "utf-8"));
+    gepaConfig = cfg.gepa ?? {};
+  } catch {}
+
+  // Resolution: CLI flag → options → config.json → default
+  const studentModel = options.studentModel ?? options.model
+    ?? (gepaConfig.studentModel as string) ?? "anthropic/claude-sonnet-4-20250514";
+  const teacherModel = options.teacherModel ?? options.reflectionModel
+    ?? (gepaConfig.teacherModel as string) ?? "anthropic/claude-opus-4-6";
+  const judgeModel = options.judgeModel
+    ?? (gepaConfig.judgeModel as string) ?? studentModel;
+  const auto = options.auto ?? (gepaConfig.auto as "light" | "medium" | "heavy") ?? "light";
+  const threads = options.threads ?? (gepaConfig.threads as number) ?? 2;
+  const seed = options.seed ?? (gepaConfig.seed as number) ?? 42;
+
   const allTargets = extractTargets(root);
   let targets = options.target ? allTargets.filter(t => t.name === options.target) : allTargets;
   if (options.target && targets.length === 0) throw new Error(`Target '${options.target}' not found. Available: ${allTargets.map(t => t.name).join(", ")}`);
 
   console.log(`[gepa] Found ${targets.length} target(s) to optimize`);
+  console.log(`[gepa] Student: ${studentModel}, Teacher: ${teacherModel}, Judge: ${judgeModel}, Budget: ${auto}`);
 
   const targetsFile = join(INPUT_DIR, "targets.json");
   writeFileSync(targetsFile, JSON.stringify({ targets: targets.map(t => ({ name: t.name, type: t.type, content: t.content })) }, null, 2));
@@ -200,11 +227,12 @@ export async function runGEPA(options: GEPAOptions = {}): Promise<GEPAOutput> {
   const uvArgs = [
     "run", "--project", scriptsDir, join(scriptsDir, "optimize.py"),
     "--targets-file", targetsFile, "--wiki-dir", WIKI_DIR, "--output", outputFile,
-    "--model", options.model ?? "anthropic/claude-sonnet-4-20250514",
-    "--auto", options.auto ?? "light",
-    "--threads", String(options.threads ?? 2),
-    "--seed", String(options.seed ?? 42),
-    ...(options.reflectionModel ? ["--reflection-model", options.reflectionModel] : []),
+    "--model", studentModel,
+    "--reflection-model", teacherModel,
+    "--judge-model", judgeModel,
+    "--auto", auto,
+    "--threads", String(threads),
+    "--seed", String(seed),
     ...(options.maxMetricCalls ? ["--max-metric-calls", String(options.maxMetricCalls)] : []),
     ...(options.target ? ["--target", options.target] : []),
   ];

@@ -100,7 +100,8 @@ def run_gepa(
     target_type: str,
     wiki_dir: str,
     model_spec: str,
-    reflection_model_spec: str | None,
+    reflection_model_spec: str | None = None,
+    judge_model_spec: str | None = None,
     auto: str = "light",
     max_metric_calls: int | None = None,
     num_threads: int = 2,
@@ -125,20 +126,23 @@ def run_gepa(
     """
     logger.info("Optimizing target: %s (type: %s)", target_name, target_type)
 
-    # 1. Create LM instances
-    task_lm = create_lm(model_spec, temperature=0.0)
-    reflection_lm = create_lm(
-        reflection_model_spec or model_spec,
-        temperature=1.0,
-        max_tokens=8000,
-    )
+    # 1. Create LM instances (teacher/student/judge pattern)
+    # Student LM: runs the proxy (generates wiki output from instruction)
+    student_lm = create_lm(model_spec, temperature=0.0)
 
-    # Use the same LM for judging (or a separate one if desired)
-    judge_lm = create_lm(model_spec, temperature=0.0)
+    # Teacher/Reflection LM: proposes mutations (needs creativity → temperature=1.0)
+    teacher_spec = reflection_model_spec or model_spec
+    teacher_lm = create_lm(teacher_spec, temperature=1.0, max_tokens=8000)
+
+    # Judge LM: scores candidates via metric (fast + cheap)
+    judge_spec = judge_model_spec or model_spec
+    judge_lm = create_lm(judge_spec, temperature=0.0)
     set_judge_lm(judge_lm)
 
+    logger.info("Student: %s | Teacher: %s | Judge: %s", model_spec, teacher_spec, judge_spec)
+
     # Configure DSPy with task LM
-    dspy.configure(lm=task_lm)
+    dspy.configure(lm=student_lm)
 
     # 2. Build dataset
     logger.info("Building dataset from wiki pages...")
@@ -186,7 +190,7 @@ def run_gepa(
 
     gepa_kwargs = {
         "metric": wiki_quality_metric,
-        "reflection_lm": reflection_lm,
+        "reflection_lm": teacher_lm,
         "reflection_minibatch_size": 3,
         "candidate_selection_strategy": "pareto",
         "skip_perfect_score": True,
@@ -274,8 +278,9 @@ def main():
     parser.add_argument("--targets-file", required=True, help="JSON file with targets to optimize")
     parser.add_argument("--wiki-dir", default=os.path.expanduser("~/.pi/wiki"), help="Wiki directory")
     parser.add_argument("--output", required=True, help="Output JSON file for results")
-    parser.add_argument("--model", default="anthropic/claude-sonnet-4-20250514", help="Task/judge model")
-    parser.add_argument("--reflection-model", default=None, help="Reflection model (defaults to --model)")
+    parser.add_argument("--model", default="anthropic/claude-sonnet-4-20250514", help="Student model (runs proxy)")
+    parser.add_argument("--reflection-model", default="anthropic/claude-opus-4-6", help="Teacher/reflection model (proposes mutations)")
+    parser.add_argument("--judge-model", default=None, help="Judge model (scores output, defaults to --model)")
     parser.add_argument("--auto", default="light", choices=["light", "medium", "heavy"], help="GEPA budget")
     parser.add_argument("--max-metric-calls", type=int, default=None, help="Override auto with explicit budget")
     parser.add_argument("--threads", type=int, default=2, help="Parallel eval threads")
@@ -316,6 +321,7 @@ def main():
             wiki_dir=args.wiki_dir,
             model_spec=args.model,
             reflection_model_spec=args.reflection_model,
+            judge_model_spec=args.judge_model,
             auto=args.auto,
             max_metric_calls=args.max_metric_calls,
             num_threads=args.threads,

@@ -61,6 +61,21 @@ interface ParaConfig {
   gepa: {
     /** When true, load optimized prompts from ~/.pi/wiki/gepa/optimized/ at runtime. */
     useOptimized: boolean;
+    /** Student model — runs the proxy (generates wiki output). Fast + cheap.
+     *  Default: anthropic/claude-sonnet-4-20250514 */
+    studentModel: string | null;
+    /** Teacher/reflection model — proposes instruction mutations. Smart + creative.
+     *  Default: anthropic/claude-opus-4-6 */
+    teacherModel: string | null;
+    /** Judge model — scores candidate outputs (LLM-as-judge). Fast + cheap.
+     *  Default: same as studentModel */
+    judgeModel: string | null;
+    /** Budget preset: light (~460 calls), medium (~1500), heavy (~5000) */
+    auto: "light" | "medium" | "heavy";
+    /** Parallel eval threads */
+    threads: number;
+    /** Random seed for reproducibility */
+    seed: number;
   };
 }
 
@@ -83,6 +98,12 @@ function getDefaultConfig(): ParaConfig {
     },
     gepa: {
       useOptimized: true,
+      studentModel: null,
+      teacherModel: null,
+      judgeModel: null,
+      auto: "light",
+      threads: 2,
+      seed: 42,
     },
   };
 }

@@ -16,6 +16,7 @@ import os
 import time
 from typing import Any, Literal
 
+import httpx
 import anthropic
 import openai
 from dspy.clients.base_lm import BaseLM
@@ -25,6 +26,8 @@ logger = logging.getLogger(__name__)
 # -- Constants ----------------------------------------------------------------
 
 CLAUDE_CODE_VERSION = "2.1.96"
+AUTH_JSON_PATH = os.path.expanduser("~/.pi/agent/auth.json")
+TOKEN_REFRESH_BUFFER_S = 300  # refresh 5 minutes before expiry
 
 MINIMAX_BASE_URL = "https://api.minimax.io/anthropic"
 MINIMAX_CN_BASE_URL = "https://api.minimaxi.com/anthropic"
@@ -101,6 +104,62 @@ class AnthropicOAuthLM(BaseLM):
             )
             logger.info("AnthropicOAuthLM: model=%s auth=APIKey", self.model)
 
+    def _maybe_refresh_token(self) -> None:
+        """Refresh OAuth token if it's about to expire."""
+        if not self._is_oauth:
+            return
+        try:
+            auth = json.loads(open(AUTH_JSON_PATH).read())
+            anthropic_auth = auth.get("anthropic", {})
+            expires_ms = anthropic_auth.get("expires", 0)
+            refresh_token = anthropic_auth.get("refresh")
+            if not refresh_token:
+                return
+
+            now_ms = time.time() * 1000
+            if expires_ms - now_ms > TOKEN_REFRESH_BUFFER_S * 1000:
+                return  # Still valid
+
+            logger.info("OAuth token expiring soon, refreshing...")
+            resp = httpx.post(
+                "https://console.anthropic.com/v1/oauth/token",
+                json={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": anthropic_auth.get("client_id", "pi"),
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                new_access = data.get("access_token", "")
+                new_expires = int(time.time() * 1000) + data.get("expires_in", 3600) * 1000
+                # Update auth.json
+                auth["anthropic"]["access"] = new_access
+                auth["anthropic"]["expires"] = new_expires
+                with open(AUTH_JSON_PATH, "w") as f:
+                    json.dump(auth, f, indent=2)
+                # Update self
+                self._auth_token = new_access
+                self._client = anthropic.Anthropic(
+                    api_key=None,
+                    auth_token=new_access,
+                    max_retries=self.num_retries,
+                    default_headers={
+                        "accept": "application/json",
+                        "anthropic-dangerous-direct-browser-access": "true",
+                        "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+                        "user-agent": f"claude-cli/{CLAUDE_CODE_VERSION} (external, cli)",
+                        "x-app": "cli",
+                    },
+                )
+                logger.info("OAuth token refreshed successfully")
+            else:
+                logger.warning("Token refresh failed: %d %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.warning("Token refresh error: %s", e)
+
     def __call__(
         self,
         prompt: str | None = None,
@@ -108,6 +167,8 @@ class AnthropicOAuthLM(BaseLM):
         **kwargs,
     ) -> list[dict]:
         """Call Anthropic API. Returns list of dicts with 'text' key."""
+        self._maybe_refresh_token()
+
         if messages is None:
             messages = []
         if prompt:
