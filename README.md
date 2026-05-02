@@ -69,14 +69,20 @@ Automatically optimize all pi-para prompts, tool instructions, and skill guideli
 # List all 22 optimization targets
 pi-para-daemon gepa targets
 
-# Optimize a single target
-pi-para-daemon gepa optimize --target capture-prompt --auto light
+# Optimize a single target (uses config defaults: sonnet student + opus teacher)
+pi-para-daemon gepa optimize --target capture-prompt
 
-# Optimize all targets
-pi-para-daemon gepa optimize --auto light
+# Optimize all targets sequentially
+bash scripts/gepa/run-all.sh
 
-# Use a specific model
-pi-para-daemon gepa optimize --target skill-para --model anthropic/claude-sonnet-4-20250514
+# Override models via CLI
+pi-para-daemon gepa optimize --target skill-para \
+  --student-model anthropic/claude-sonnet-4-20250514 \
+  --teacher-model anthropic/claude-opus-4-6 \
+  --judge-model anthropic/claude-sonnet-4-20250514
+
+# Shorthand (--model = student, --reflection-model = teacher)
+pi-para-daemon gepa optimize --model anthropic/claude-sonnet-4-20250514 --reflection-model anthropic/claude-opus-4-6
 
 # See results
 pi-para-daemon gepa list
@@ -91,8 +97,18 @@ pi-para-daemon gepa compare --target capture-prompt
 2. Calls `uv run scripts/gepa/optimize.py` with API keys from `~/.pi/agent/auth.json`
 3. Python builds a trainset from real wiki pages (93 pages → 30 train / 20 val)
 4. DSPy GEPA evolves each instruction using a lightweight proxy module (1 LLM call per eval, not 10-50)
-5. LLM-as-judge metric scores on 6 dimensions: structure, PARA compliance, cross-references, security, completeness, actionability
-6. Optimized prompts saved to `~/.pi/wiki/gepa/optimized/`
+5. **Teacher** (Opus) proposes instruction mutations based on metric feedback
+6. **Student** (Sonnet) runs the proxy to generate output from the instruction
+7. **Judge** (Sonnet) scores on 6 dimensions: structure, PARA compliance, cross-references, security, completeness, actionability
+8. Optimized prompts saved to `~/.pi/wiki/gepa/optimized/`
+
+**Teacher/Student/Judge pattern** (DSPy GEPA):
+
+| Role | Default Model | What It Does | Calls/target |
+|------|---------------|--------------|--------|
+| **Student** | `claude-sonnet-4` | Runs proxy (generates wiki output) | ~460 |
+| **Teacher** | `claude-opus-4-6` | Proposes mutations via reflection | ~30 |
+| **Judge** | `claude-sonnet-4` | Scores output (LLM-as-judge metric) | ~460 |
 
 **22 optimization targets:**
 
@@ -106,18 +122,33 @@ pi-para-daemon gepa compare --target capture-prompt
 
 | Provider | Auth | Notes |
 |----------|------|-------|
-| Anthropic | OAuth token from `auth.json` | Claude Code billing headers + user-agent |
+| Anthropic | OAuth token from `auth.json` | Claude Code billing headers + user-agent, auto token refresh |
 | MiniMax | API key | Via Anthropic-compatible API |
 | OpenRouter | API key | Via OpenAI-compatible API |
 
-**Deploy optimized prompts:**
+**Configuration** (`~/.pi/wiki/config.json`):
 
 ```json
-// ~/.pi/wiki/config.json
-{ "gepa": { "useOptimized": true } }
+{
+  "gepa": {
+    "useOptimized": true,
+    "studentModel": "anthropic/claude-sonnet-4-20250514",
+    "teacherModel": "anthropic/claude-opus-4-6",
+    "judgeModel": null,
+    "auto": "light",
+    "threads": 2,
+    "seed": 42
+  }
+}
 ```
 
-When enabled, `getPrompt(name)` loads optimized versions at runtime. Originals are always preserved.
+- `useOptimized: true` — load optimized prompts at runtime (enabled by default)
+- `studentModel` — fast model for running proxy + judging (Sonnet recommended)
+- `teacherModel` — smart model for proposing mutations (Opus recommended)
+- `judgeModel` — model for scoring output (defaults to studentModel if null)
+- All settings overridable via CLI flags
+
+When `useOptimized` is enabled, `getPrompt(name)` checks: user-generated → bundled optimized → original. Originals are always preserved.
 
 **Budget presets:**
 

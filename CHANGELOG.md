@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.2] — 2026-05-02
+
+### Added
+- **Configurable teacher/student/judge models** for GEPA optimization
+  - `gepa.studentModel`: runs proxy (default: `claude-sonnet-4`) — fast, cheap, ~460 calls/target
+  - `gepa.teacherModel`: proposes mutations (default: `claude-opus-4-6`) — smart, creative, ~30 calls/target
+  - `gepa.judgeModel`: scores output (default: same as student) — fast, cheap
+- CLI flags: `--student-model`, `--teacher-model`, `--judge-model` (+ `--model`/`--reflection-model` shorthands)
+- All GEPA settings persisted in `config.json` and overridable via CLI
+- `run-all.sh` helper script for sequential target optimization with proper token refresh
+- OAuth token auto-refresh in `AnthropicOAuthLM` (prevents 401 on long runs)
+
 ## [0.5.1] — 2026-05-01
 
 ### Added
