@@ -93,6 +93,7 @@
     "fix-links:dry": "tsx src/scripts/bulk-link-fix.ts --dry-run"
   },
   "dependencies": {
+    "@picassio/qmd": "github:picassio/qmd-1",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^11.9.1",
     "yaml": "^2.8.2"
