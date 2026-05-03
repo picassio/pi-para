@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 
 import type { Model } from "@mariozechner/pi-ai";
 import { openStore, closeStore } from "./store.js";
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 
 import { StateDB } from "./state.js";
 import { RegistryWatcher } from "./watcher.js";

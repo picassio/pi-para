@@ -1,5 +1,5 @@
 /**
- * qmd store lifecycle — manages the @picassio/qmd store instance.
+ * qmd store lifecycle — manages the qmd-engine store instance.
  *
  * Handles store creation/opening, search with scope filtering,
  * re-indexing after wiki changes, and embedding lifecycle.
@@ -9,15 +9,15 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { createStore, extractSnippet } from "@picassio/qmd";
-import type { QMDStore, CollectionConfig } from "@picassio/qmd";
+import { createStore, extractSnippet } from "qmd-engine";
+import type { QMDStore, CollectionConfig } from "qmd-engine";
 import { parseFrontmatter } from "./frontmatter.js";
 import { matchesScope } from "./scope.js";
 import type { PageFrontmatter, PageRef, ParaCategory } from "./wiki.js";
 import type { ProjectScope } from "./scope.js";
 
 // Re-export QMDStore for convenience
-export type { QMDStore } from "@picassio/qmd";
+export type { QMDStore } from "qmd-engine";
 
 // -- Types ------------------------------------------------------------------
 

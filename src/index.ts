@@ -13,7 +13,7 @@ import { join, dirname } from "node:path";
 import { homedir, networkInterfaces } from "node:os";
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 
 import type { ProjectScope } from "./scope.js";
 import { detectScope } from "./scope.js";

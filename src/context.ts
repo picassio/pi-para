@@ -9,7 +9,7 @@
  * context is returned on subsequent before_agent_start calls, adding <5ms.
  */
 
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 import type {
   ExtensionAPI,
   ExtensionContext,

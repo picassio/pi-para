@@ -6,7 +6,7 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 
 import {
   readPage,

@@ -7,7 +7,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 import type { ParaCategory, PageRef, LogEntry } from "./wiki.js";
 import { readSchema, readIndex } from "./wiki.js";
 import { saveRawSource } from "./raw.js";

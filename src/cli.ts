@@ -21,7 +21,7 @@ import { StateDB } from "./state.js";
 import { RegistryWatcher } from "./watcher.js";
 
 // -- Model setup -------------------------------------------------------------
-// Use MiniMax via the same config as @picassio/qmd
+// Use MiniMax via the same config as qmd-engine
 
 async function createModel(modelArg?: string) {
   const { parse } = await import("yaml");

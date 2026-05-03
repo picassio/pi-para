@@ -6,7 +6,7 @@
  * the wiki_query tool wraps it with LLM prompt formatting.
  */
 
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 import type { ParaCategory } from "./wiki.js";
 import { searchWiki } from "./store.js";
 import type { WikiSearchResult } from "./store.js";

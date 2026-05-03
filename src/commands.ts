@@ -9,7 +9,7 @@
 import { readFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 import type { ProjectScope } from "./scope.js";

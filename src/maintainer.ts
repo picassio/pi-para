@@ -12,7 +12,7 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 import { Type } from "typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 

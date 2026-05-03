@@ -12,7 +12,7 @@ import type { Model } from "@mariozechner/pi-ai";
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { AgentMessage, AgentEvent } from "@mariozechner/pi-agent-core";
 import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
-import type { QMDStore } from "@picassio/qmd";
+import type { QMDStore } from "qmd-engine";
 
 import type { ProjectScope } from "./scope.js";
 import type { PageRef, ParaCategory } from "./wiki.js";
