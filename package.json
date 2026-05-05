@@ -1,5 +1,5 @@
 {
-  "name": "@picassio/pi-para",
+  "name": "pi-para",
   "version": "0.5.2",
   "description": "PARA Knowledge Base Extension for pi \u2014 persistent, LLM-curated personal wiki",
   "type": "module",
@@ -134,7 +134,7 @@
     "url": "https://github.com/picassio/pi-para/issues"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "bin": {
     "pi-para-daemon": "./dist/cli.js"
