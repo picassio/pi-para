@@ -80,7 +80,7 @@ function findPackageRoot(): string {
     if (existsSync(pkgPath)) {
       try {
         const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-        if (pkg.name === "@picassio/pi-para") return dir;
+        if (pkg.name === "pi-para" || pkg.name === "@picassio/pi-para") return dir;
       } catch {}
     }
     dir = dirname(dir);

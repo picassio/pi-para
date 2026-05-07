@@ -7,7 +7,7 @@ The LLM writes and maintains the wiki autonomously. You provide sources and ask 
 ## Install
 
 ```bash
-pi install @picassio/pi-para
+pi install pi-para
 ```
 
 Start pi — the extension loads automatically. Wiki directory is created on first session.
