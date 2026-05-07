@@ -399,20 +399,28 @@ function createWriteExecute(
       }
 
       if (pageSpec.mode === "edit" && existing) {
-        // Edit mode: apply targeted oldText→newText replacements
+        // Legacy edit mode: keep for compatibility, but make it atomic like wiki_edit.
         const edits = pageSpec.edits ?? [];
         if (edits.length === 0) {
           continue; // no edits to apply
         }
-        let editedBody = existing.body;
         const errors: string[] = [];
         for (const edit of edits) {
-          const idx = editedBody.indexOf(edit.oldText);
-          if (idx === -1) {
+          const first = existing.body.indexOf(edit.oldText);
+          const last = existing.body.lastIndexOf(edit.oldText);
+          if (first === -1) {
             errors.push(`oldText not found: "${edit.oldText.slice(0, 60)}..."`);
-            continue;
+          } else if (first !== last) {
+            errors.push(`oldText is not unique: "${edit.oldText.slice(0, 60)}..."`);
           }
-          editedBody = editedBody.slice(0, idx) + edit.newText + editedBody.slice(idx + edit.oldText.length);
+        }
+        if (errors.length > 0) {
+          pagesSkipped.push(`${pagePath} (${errors.join("; ")})`);
+          continue;
+        }
+        let editedBody = existing.body;
+        for (const edit of edits) {
+          editedBody = editedBody.replace(edit.oldText, edit.newText);
         }
         const linkedBody = redactSecrets(autoLinkSlugs(editedBody, allSlugs, slug)).text;
         const rawScope = pageSpec.scope.length > 0 ? pageSpec.scope : existing.frontmatter.scope;
