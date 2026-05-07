@@ -1,5 +1,5 @@
 {
-  "name": "pi-para",
+  "name": "@picassio/pi-para",
   "version": "0.5.3",
   "description": "PARA Knowledge Base Extension for pi \u2014 persistent, LLM-curated personal wiki",
   "type": "module",
