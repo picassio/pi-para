@@ -134,7 +134,7 @@
     "url": "https://github.com/picassio/pi-para/issues"
   },
   "publishConfig": {
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "bin": {
     "pi-para-daemon": "./dist/cli.js"
