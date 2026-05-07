@@ -124,6 +124,17 @@ const WikiWriteParams = Type.Object({
   ),
 });
 
+const WikiEditParams = Type.Object({
+  path: Type.String({ description: "Existing page path (e.g. 'resources/ssl-cert-gotchas')" }),
+  edits: Type.Array(WikiEditSchema, {
+    description: "Atomic exact text replacements. Every oldText must appear exactly once or no changes are written.",
+  }),
+  title: Type.Optional(Type.String({ description: "Optional replacement page title" })),
+  scope: Type.Optional(Type.Array(Type.String(), { description: "Optional replacement scope tags" })),
+  tags: Type.Optional(Type.Array(Type.String(), { description: "Optional replacement topic tags" })),
+  logSummary: Type.Optional(Type.String({ description: "One-line summary for log.md" })),
+});
+
 const WikiReadParams = Type.Object({
   path: Type.String({
     description: "Page path (e.g. 'projects/auth-refactor') or page title",
@@ -173,6 +184,7 @@ interface WikiWriteDetails {
   pagesWritten: string[];
   indexUpdated: boolean;
   logAppended: boolean;
+  pagesSkipped?: string[];
 }
 
 interface WikiReadDetails {
@@ -350,6 +362,7 @@ function createWriteExecute(
     },
   ): Promise<AgentToolResult<WikiWriteDetails>> => {
     const pagesWritten: string[] = [];
+    const pagesSkipped: string[] = [];
     const now = new Date().toISOString();
     const scope = getScope();
 
@@ -374,6 +387,16 @@ function createWriteExecute(
 
       // Track this slug for auto-linking other pages in this batch
       allSlugs.add(slug);
+
+      if (pageSpec.mode === "create" && existing) {
+        pagesSkipped.push(`${pagePath} (already exists; use mode=replace, mode=append, or wiki_edit)`);
+        continue;
+      }
+
+      if (pageSpec.mode === "edit" && !existing) {
+        pagesSkipped.push(`${pagePath} (missing; wiki_write mode=edit requires an existing page)`);
+        continue;
+      }
 
       if (pageSpec.mode === "edit" && existing) {
         // Edit mode: apply targeted oldText→newText replacements
@@ -514,9 +537,12 @@ function createWriteExecute(
       await gitCommit(wikiDir, commitMsg);
     }
 
-    const summary = pagesWritten.length > 0
-      ? `Wrote ${pagesWritten.length} page(s): ${pagesWritten.join(", ")}`
-      : "No pages written.";
+    const summary = [
+      pagesWritten.length > 0
+        ? `Wrote ${pagesWritten.length} page(s): ${pagesWritten.join(", ")}`
+        : "No pages written.",
+      pagesSkipped.length > 0 ? `Skipped ${pagesSkipped.length} page(s): ${pagesSkipped.join(", ")}` : "",
+    ].filter(Boolean).join("\n");
 
     return {
       content: [
@@ -535,12 +561,122 @@ function createWriteExecute(
         pagesWritten,
         indexUpdated,
         logAppended,
+        pagesSkipped,
       },
     };
   };
 }
 
 // -- Factory: wiki_read execute ----------------------------------------------
+
+function createEditExecute(
+  wikiDir: string,
+  store: QMDStore,
+  markDirty: () => void,
+) {
+  return async (
+    params: {
+      path: string;
+      edits: Array<{ oldText: string; newText: string }>;
+      title?: string;
+      scope?: string[];
+      tags?: string[];
+      logSummary?: string;
+    },
+  ): Promise<AgentToolResult<WikiWriteDetails>> => {
+    const parsed = parsePagePath(params.path);
+    if (!parsed) {
+      return {
+        content: [{ type: "text", text: `Invalid page path: ${params.path}` }],
+        details: { pagesWritten: [], pagesSkipped: [params.path], indexUpdated: false, logAppended: false },
+      };
+    }
+
+    const existing = await readPage(wikiDir, parsed.category, parsed.slug);
+    const pagePath = `${parsed.category}/${parsed.slug}`;
+    if (!existing) {
+      return {
+        content: [{ type: "text", text: `Page not found: ${pagePath}` }],
+        details: { pagesWritten: [], pagesSkipped: [pagePath], indexUpdated: false, logAppended: false },
+      };
+    }
+
+    if (params.edits.length === 0) {
+      return {
+        content: [{ type: "text", text: "No edits supplied." }],
+        details: { pagesWritten: [], pagesSkipped: [pagePath], indexUpdated: false, logAppended: false },
+      };
+    }
+
+    // Atomic validation: all oldText strings must exist exactly once before writing.
+    const errors: string[] = [];
+    for (const edit of params.edits) {
+      const first = existing.body.indexOf(edit.oldText);
+      const last = existing.body.lastIndexOf(edit.oldText);
+      if (first === -1) {
+        errors.push(`oldText not found: "${edit.oldText.slice(0, 60)}..."`);
+      } else if (first !== last) {
+        errors.push(`oldText is not unique: "${edit.oldText.slice(0, 60)}..."`);
+      }
+    }
+    if (errors.length > 0) {
+      return {
+        content: [{ type: "text", text: `No changes written.\n${errors.join("\n")}` }],
+        details: { pagesWritten: [], pagesSkipped: [pagePath], indexUpdated: false, logAppended: false },
+      };
+    }
+
+    let editedBody = existing.body;
+    for (const edit of params.edits) {
+      editedBody = editedBody.replace(edit.oldText, edit.newText);
+    }
+
+    const allRefs = await listPages(wikiDir);
+    const allSlugs = new Set(allRefs.map(r => r.slug));
+    const linkedBody = redactSecrets(autoLinkSlugs(editedBody, allSlugs, parsed.slug)).text;
+    const now = new Date().toISOString();
+    const rawScope = params.scope ?? existing.frontmatter.scope;
+    const newScope = normalizeScopes(rawScope);
+    const rawTags = params.tags ?? existing.frontmatter.tags;
+    const updatedPage: WikiPage = {
+      category: parsed.category,
+      slug: parsed.slug,
+      frontmatter: {
+        ...existing.frontmatter,
+        title: params.title ?? existing.frontmatter.title,
+        scope: newScope,
+        tags: normalizeTags(rawTags, newScope),
+        updated: now,
+        links: syncFrontmatterLinks(linkedBody),
+      },
+      body: linkedBody,
+    };
+
+    await writePage(wikiDir, updatedPage);
+    await rebuildIndex(wikiDir);
+    if (params.logSummary) {
+      await appendLog(wikiDir, {
+        date: now.split("T")[0],
+        operation: "edit",
+        summary: params.logSummary,
+        pages: [pagePath],
+      });
+    }
+    await reindex(store);
+    markDirty();
+    await gitCommit(wikiDir, params.logSummary ?? `wiki_edit: ${pagePath}`);
+
+    return {
+      content: [{ type: "text", text: `Edited ${pagePath}` }],
+      details: {
+        pagesWritten: [pagePath],
+        pagesSkipped: [],
+        indexUpdated: true,
+        logAppended: !!params.logSummary,
+      },
+    };
+  };
+}
 
 function createReadExecute(wikiDir: string) {
   return async (
@@ -866,7 +1002,7 @@ function createMigrateExecute(
 /**
  * Register all wiki tools with the pi extension API.
  *
- * Tools: wiki_ingest, wiki_query, wiki_write, wiki_read,
+ * Tools: wiki_ingest, wiki_query, wiki_write, wiki_edit, wiki_read,
  *        wiki_move, wiki_lint, wiki_summarize
  */
 export function registerTools(
@@ -880,6 +1016,7 @@ export function registerTools(
   const ingestExec = createIngestExecute(wikiDir, store, getScope);
   const queryExec = createQueryExecute(wikiDir, store, getScope, getGraphBoost);
   const writeExec = createWriteExecute(wikiDir, store, getScope, markDirty);
+  const editExec = createEditExecute(wikiDir, store, markDirty);
   const readExec = createReadExecute(wikiDir);
   const moveExec = createMoveExecute(wikiDir, store, markDirty);
   const lintExec = createLintExecute(wikiDir);
@@ -946,7 +1083,7 @@ export function registerTools(
     promptGuidelines: [
       "Use wiki_query BEFORE answering questions that might have relevant context in the wiki — architecture decisions, past debugging solutions, project conventions, or domain knowledge.",
       "Use wiki_query when the user asks about something you previously discussed or captured in the wiki.",
-      "Wiki results include freshness indicators (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE and makes claims about code, files, configs, ports, or APIs — verify against the actual source before trusting. If you find the wiki is wrong, fix it immediately with wiki_write(mode: 'edit').",
+      "Wiki results include freshness indicators (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE and makes claims about code, files, configs, ports, or APIs — verify against the actual source before trusting. If you find the wiki is wrong, fix it immediately with wiki_edit.",
     ],
     parameters: WikiQueryParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -977,20 +1114,57 @@ export function registerTools(
     },
   });
 
+  // -- wiki_edit --
+  pi.registerTool({
+    name: "wiki_edit",
+    label: "Wiki Edit",
+    description:
+      "Atomically edit an existing wiki page with exact oldText→newText replacements. " +
+      "Use this for surgical updates; wiki_write mode=replace is only for full-page rewrites.",
+    promptSnippet: "Surgically edit an existing wiki page. Every edits[].oldText must match exactly once, or no changes are written.",
+    promptGuidelines: [
+      "Use wiki_edit after wiki_read when fixing stale, incorrect, or incomplete content.",
+      "Prefer wiki_edit for existing pages. Use wiki_write mode=append for adding a new section, and mode=replace only for intentional full-page rewrites.",
+      "Keep oldText as small as possible while still unique in the page body.",
+    ],
+    parameters: WikiEditParams,
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      ctx.ui.setStatus("pi-para", "wiki: editing...");
+      try { return await editExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
+    },
+    renderCall(args, theme) {
+      return new Text(
+        theme.fg("toolTitle", theme.bold("wiki_edit ")) +
+          theme.fg("muted", args.path ?? "") +
+          theme.fg("dim", ` (${args.edits?.length ?? 0} edit(s))`),
+        0,
+        0,
+      );
+    },
+    renderResult(result, _options, theme) {
+      const details = result.details as WikiWriteDetails | undefined;
+      if (details?.pagesWritten?.length) {
+        return new Text(theme.fg("success", `Edited ${details.pagesWritten.join(", ")}`), 0, 0);
+      }
+      const t = result.content[0];
+      return new Text(theme.fg("warning", t?.type === "text" ? t.text : "No changes"), 0, 0);
+    },
+  });
+
   // -- wiki_write --
   pi.registerTool({
     name: "wiki_write",
     label: "Wiki Write",
     description:
-      "Write or update wiki pages. Supports create, replace, append, and edit modes. " +
-      "Optionally update index.md and append to log.md. " +
+      "Create, append, or intentionally replace wiki pages. " +
+      "mode=create never overwrites an existing page; use wiki_edit for surgical edits or mode=replace for full-page rewrites. " +
       "Pages are automatically re-indexed for search after writing.",
-    promptSnippet: "Write/update PARA wiki pages with frontmatter and markdown body. Use mode=edit with edits[{oldText,newText}] to surgically update sections.",
+    promptSnippet: "Create/append/replace PARA wiki pages. Prefer wiki_edit for surgical updates to existing pages.",
     promptGuidelines: [
-      "Use wiki_write after wiki_ingest to create/update pages based on the ingested content.",
-      "Use wiki_write to save valuable answers or synthesis back into the wiki when they add new knowledge.",
-      "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked.",
-      "Prefer mode=edit with edits[{oldText,newText}] to update specific sections of existing pages. Use mode=append to add new sections. Only use mode=replace when rewriting the entire page.",
+      "Use wiki_write to create new pages, append new sections, or intentionally replace an entire page.",
+      "mode=create is safe: if the page exists it is skipped, not overwritten.",
+      "Use wiki_edit after wiki_read for targeted fixes to existing pages.",
+      "Use mode=replace only when deliberately rewriting the entire page.",
     ],
     parameters: WikiWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -1023,6 +1197,9 @@ export function registerTools(
             theme.fg("muted", details.pagesWritten.join(", ")),
         );
       }
+      if (details.pagesSkipped?.length) {
+        parts.push(theme.fg("warning", `Skipped ${details.pagesSkipped.length} page(s): `) + theme.fg("muted", details.pagesSkipped.join(", ")));
+      }
       if (details.indexUpdated) parts.push(theme.fg("dim", "Updated index.md"));
       if (details.logAppended) parts.push(theme.fg("dim", "Logged operation"));
       return new Text(parts.join("\n") || theme.fg("dim", "No changes"), 0, 0);
@@ -1038,7 +1215,7 @@ export function registerTools(
       "or by title. Returns the full page content with frontmatter metadata and a freshness indicator.",
     promptSnippet: "Read a wiki page by path or title. Includes freshness indicator — verify STALE pages against actual code before trusting.",
     promptGuidelines: [
-      "wiki_read results include a freshness indicator (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE, verify claims about code, configs, or APIs against the actual source before trusting. Fix incorrect wiki pages with wiki_write(mode: 'edit').",
+      "wiki_read results include a freshness indicator (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE, verify claims about code, configs, or APIs against the actual source before trusting. Fix incorrect wiki pages with wiki_edit.",
     ],
     parameters: WikiReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -1231,7 +1408,7 @@ export function registerTools(
 /**
  * Create standalone AgentTool instances for the mini-agent (capture/lint/summarize).
  * Returns only the tools needed for autonomous wiki operations:
- * wiki_write, wiki_read, wiki_query, wiki_move.
+ * wiki_write, wiki_edit, wiki_read, wiki_query, wiki_move.
  */
 export function createStandaloneTools(
   wikiDir: string,
@@ -1241,6 +1418,7 @@ export function createStandaloneTools(
 ): AgentTool[] {
   const noopDirty = markDirty ?? (() => {});
   const writeExec = createWriteExecute(wikiDir, store, getScope, noopDirty);
+  const editExec = createEditExecute(wikiDir, store, noopDirty);
   const readExec = createReadExecute(wikiDir);
   const queryExec = createQueryExecute(wikiDir, store, getScope);
   const moveExec = createMoveExecute(wikiDir, store, noopDirty);
@@ -1249,10 +1427,19 @@ export function createStandaloneTools(
     name: "wiki_write",
     label: "Wiki Write",
     description:
-      "Write or update wiki pages. Supports create, replace, and append modes. " +
-      "Optionally update index.md and append to log.md.",
+      "Create, append, or intentionally replace wiki pages. " +
+      "mode=create skips existing pages; use wiki_edit for surgical edits." ,
     parameters: WikiWriteParams,
     execute: (_toolCallId, params) => writeExec(params),
+  };
+
+  const wikiEdit: AgentTool<typeof WikiEditParams> = {
+    name: "wiki_edit",
+    label: "Wiki Edit",
+    description:
+      "Atomically edit an existing wiki page with exact oldText→newText replacements.",
+    parameters: WikiEditParams,
+    execute: (_toolCallId, params) => editExec(params),
   };
 
   const wikiRead: AgentTool<typeof WikiReadParams> = {
@@ -1281,7 +1468,7 @@ export function createStandaloneTools(
     execute: (_toolCallId, params) => moveExec(params),
   };
 
-  return [wikiWrite, wikiRead, wikiQuery, wikiMove];
+  return [wikiWrite, wikiEdit, wikiRead, wikiQuery, wikiMove];
 }
 
 // -- Utilities ---------------------------------------------------------------

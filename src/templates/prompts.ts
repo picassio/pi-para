@@ -134,7 +134,7 @@ Instructions:
 FRESHNESS VERIFICATION (critical):
 - Each result shows an "Updated" timestamp and an age indicator (e.g. "⚠️ STALE — 45 days old"). Treat pages not updated in >14 days with healthy skepticism.
 - When a wiki page makes claims about code, configs, file paths, ports, API endpoints, or architecture — and the page is >14 days old — VERIFY by checking the actual source (read the file, run a command) before trusting the wiki.
-- When you discover a wiki page contains outdated or incorrect information, IMMEDIATELY fix it with wiki_write(mode: "edit") so future queries get correct answers. This is the self-healing loop.
+- When you discover a wiki page contains outdated or incorrect information, IMMEDIATELY fix it with wiki_edit so future queries get correct answers. This is the self-healing loop.
 - If you cannot verify a claim (e.g. no file access, external service), tell the user: "Wiki says X (last updated DATE) — I could not verify this is still current."
 - Never silently pass along stale wiki content as fact. Either verify it or flag it.`;
 

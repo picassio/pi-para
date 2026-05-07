@@ -115,7 +115,7 @@ pi-para-daemon gepa compare --target capture-prompt
 | Category | Targets |
 |----------|--------|
 | Prompt templates (12) | System, ingest, query, capture (×3), maintenance, processor, summarize, iterative, overview, lint |
-| Tool instructions (8) | wiki_ingest, wiki_query, wiki_write, wiki_read, wiki_move, wiki_lint, wiki_migrate, wiki_summarize |
+| Tool instructions (9) | wiki_ingest, wiki_query, wiki_write, wiki_edit, wiki_read, wiki_move, wiki_lint, wiki_migrate, wiki_summarize |
 | Skills (2) | para (active PARA workflow), setup (installation guide) |
 
 **LLM providers** (custom `dspy.BaseLM` subclasses, no litellm):
@@ -236,7 +236,7 @@ Every `wiki_query` and `wiki_read` result includes a freshness indicator based o
 
 The LLM is instructed to:
 - **Verify** stale claims by checking actual code, configs, or files
-- **Self-heal** — fix incorrect wiki pages via `wiki_write(mode: 'edit')` when it discovers they're wrong
+- **Self-heal** — fix incorrect wiki pages via `wiki_edit` when it discovers they're wrong
 - **Flag uncertainty** — tell the user when a claim can't be verified (e.g. external services)
 
 ### Configuration

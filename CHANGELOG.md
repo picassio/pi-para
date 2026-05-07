@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3] — 2026-05-02
+
+### Changed
+- `wiki_write` is now safer: `mode=create` skips existing pages instead of overwriting them.
+- Added `wiki_edit` for atomic surgical page edits with exact `oldText→newText` replacements.
+- Updated prompts/tool guidance to prefer `wiki_edit` for self-healing stale pages and reserve `wiki_write mode=replace` for intentional full-page rewrites.
+
 ## [0.5.2] — 2026-05-02
 
 ### Added

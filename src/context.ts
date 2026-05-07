@@ -211,10 +211,10 @@ export async function buildContext(
     "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked."
   );
   parts.push(
-    "When using wiki_write: use resources/ category for almost everything (architecture docs, debugging, patterns). scope must be a kebab-case project name. tags must be kebab-case, no spaces. Always add [[wikilinks]] in a ## Connections section. NEVER include API keys, tokens, or secrets — document WHERE they are stored, not the values."
+    "When using wiki_write: use resources/ category for almost everything (architecture docs, debugging, patterns). scope must be a kebab-case project name. tags must be kebab-case, no spaces. Always add [[wikilinks]] in a ## Connections section. NEVER include API keys, tokens, or secrets — document WHERE they are stored, not the values. Use wiki_edit for surgical updates to existing pages; wiki_write mode=create will not overwrite existing pages."
   );
   parts.push(
-    "Wiki pages may be stale. When wiki_query or wiki_read returns a page with an AGING/STALE/VERY STALE freshness indicator, verify its claims against actual code or configs before trusting it. If you find incorrect information, fix it immediately with wiki_write(mode: 'edit'). This self-healing loop keeps the wiki accurate."
+    "Wiki pages may be stale. When wiki_query or wiki_read returns a page with an AGING/STALE/VERY STALE freshness indicator, verify its claims against actual code or configs before trusting it. If you find incorrect information, fix it immediately with wiki_edit. This self-healing loop keeps the wiki accurate."
   );
 
   return header + "\n" + parts.join("\n\n") + "\n" + footer;

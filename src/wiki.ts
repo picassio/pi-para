@@ -53,7 +53,7 @@ export interface PageRef {
 
 export interface LogEntry {
   date: string;
-  operation: "ingest" | "query" | "lint" | "capture" | "move" | "archive";
+  operation: "ingest" | "query" | "lint" | "capture" | "move" | "archive" | "edit";
   summary: string;
   pages: string[];
 }
