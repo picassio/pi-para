@@ -176,6 +176,16 @@ const DEFAULT_LOG = "# Activity Log\n";
 
 const DEFAULT_SESSIONS = "# Session Digests\n";
 
+const DEFAULT_GITIGNORE = `# pi-para generated state (do not version)
+.qmd.sqlite*
+.daemon.sqlite*
+gepa/input/
+gepa/output/
+
+# local caches/logs
+*.tmp
+`;
+
 // -- Helpers -----------------------------------------------------------------
 
 async function fileExists(path: string): Promise<boolean> {
@@ -216,6 +226,7 @@ export async function initWiki(wikiDir: string): Promise<void> {
   await seedFile(join(wikiDir, "index.md"), DEFAULT_INDEX);
   await seedFile(join(wikiDir, "log.md"), DEFAULT_LOG);
   await seedFile(join(wikiDir, "sessions.md"), DEFAULT_SESSIONS);
+  await seedFile(join(wikiDir, ".gitignore"), DEFAULT_GITIGNORE);
 }
 
 /**
@@ -534,8 +545,25 @@ export async function gitCommit(
       if (!initResult) return false;
     }
 
-    // Stage all changes
-    await git(wikiDir, ["add", "-A"]);
+    // Stage durable wiki content only. Generated SQLite/search state can be large
+    // and made wiki edits slow when `git add -A` tried to version it.
+    const stageCandidates = [
+      ".gitignore",
+      "schema.md",
+      "index.md",
+      "log.md",
+      "sessions.md",
+      "config.json",
+      ".completed-sessions",
+      ...PARA_CATEGORIES,
+    ];
+    const stagePaths: string[] = [];
+    for (const p of stageCandidates) {
+      if (await fileExists(join(wikiDir, p))) stagePaths.push(p);
+    }
+    if (stagePaths.length > 0) {
+      await git(wikiDir, ["add", "--", ...stagePaths]);
+    }
 
     // Check if there's anything to commit
     const status = await git(wikiDir, ["status", "--porcelain"]);

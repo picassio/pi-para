@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.4] — 2026-05-07
+
+### Fixed
+- Wiki edits no longer stage generated SQLite/search state in git auto-commits.
+- New wiki directories seed a `.gitignore` for `.qmd.sqlite*`, `.daemon.sqlite*`, and GEPA scratch output.
+
 ## [0.5.3] — 2026-05-02
 
 ### Changed
