@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.5] — 2026-05-07
+
+### Changed
+- `wiki_edit` stays fast but now schedules debounced background maintenance to rebuild `index.md` and refresh QMD search after surgical edits.
+
 ## [0.5.4] — 2026-05-07
 
 ### Fixed
