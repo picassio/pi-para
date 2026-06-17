@@ -639,9 +639,10 @@ function createEditExecute(
       editedBody = editedBody.replace(edit.oldText, edit.newText);
     }
 
-    const allRefs = await listPages(wikiDir);
-    const allSlugs = new Set(allRefs.map(r => r.slug));
-    const linkedBody = redactSecrets(autoLinkSlugs(editedBody, allSlugs, parsed.slug)).text;
+    // Surgical edit path: do not scan/autolink/rebuild/reindex the whole wiki.
+    // wiki_edit is often called mid-task and must stay fast; broader maintenance
+    // can run via wiki_lint/rebuildIndex or on startup.
+    const linkedBody = redactSecrets(editedBody).text;
     const now = new Date().toISOString();
     const rawScope = params.scope ?? existing.frontmatter.scope;
     const newScope = normalizeScopes(rawScope);
@@ -661,7 +662,6 @@ function createEditExecute(
     };
 
     await writePage(wikiDir, updatedPage);
-    await rebuildIndex(wikiDir);
     if (params.logSummary) {
       await appendLog(wikiDir, {
         date: now.split("T")[0],
@@ -670,7 +670,6 @@ function createEditExecute(
         pages: [pagePath],
       });
     }
-    await reindex(store);
     markDirty();
     await gitCommit(wikiDir, params.logSummary ?? `wiki_edit: ${pagePath}`);
 
@@ -679,7 +678,7 @@ function createEditExecute(
       details: {
         pagesWritten: [pagePath],
         pagesSkipped: [],
-        indexUpdated: true,
+        indexUpdated: false,
         logAppended: !!params.logSummary,
       },
     };
