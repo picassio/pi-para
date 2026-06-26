@@ -92,6 +92,21 @@ describe("scheduler", () => {
     }
   });
 
+  it("requeues stale running tasks", async () => {
+    const file = await tempDb();
+    try {
+      const state = new SchedulerStateDB(file.dbPath);
+      const id = state.enqueue("stale", {}, { now: new Date("2026-01-01T00:00:00Z") });
+      state.claimNext(new Date("2026-01-01T00:00:01Z"));
+      expect(state.get(id)?.status).toBe("running");
+      expect(state.requeueRunning(new Date("2026-01-01T00:00:02Z"))).toBe(1);
+      expect(state.get(id)?.status).toBe("queued");
+      state.close();
+    } finally {
+      await file.cleanup();
+    }
+  });
+
   it("stops cleanly while a handler is still running", async () => {
     const file = await tempDb();
     try {

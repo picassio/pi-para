@@ -67,8 +67,10 @@ Generated SQLite files are ignored by git. Durable markdown, raw source markdown
 Provider config precedence:
 
 1. pi-para provider profiles from `~/.pi/para/config.jsonc`,
-2. legacy `~/.config/qmd/index.yml` only when compatibility mode/no config is used,
-3. QMD local defaults/BM25 fallback.
+2. legacy `~/.config/qmd/index.yml` only when explicit compatibility mode is used,
+3. an inert API provider shim when no provider is configured.
+
+pi-para never uses QMD local/node-llama-cpp LLM defaults. BM25 search works without calling an LLM; accidental vector/chat calls without a configured API provider fail fast instead of downloading/building local models.
 
 Global `qmd` CLI is optional for debugging and not part of normal runtime.
 

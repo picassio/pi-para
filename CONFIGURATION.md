@@ -196,7 +196,9 @@ QMD SDK configuration.
 | `embedding` | Optional embedding provider profile |
 | `rerank` | Optional rerank provider profile or `null` |
 
-`legacy-qmd-compatible` reads `~/.config/qmd/index.yml` for compatibility.
+`legacy-qmd-compatible` reads `~/.config/qmd/index.yml` for compatibility only. New installs and migrated local setups should use `pi-para-profiles`.
+
+pi-para never uses QMD's local/node-llama-cpp LLM fallback. If no API provider is configured, BM25 search still works and vector/chat calls fail fast instead of downloading local models.
 
 ### `lint`
 

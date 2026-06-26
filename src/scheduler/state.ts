@@ -176,6 +176,15 @@ export class SchedulerStateDB {
     return rows.map(rowToItem);
   }
 
+  requeueRunning(now = new Date()): number {
+    const result = this.db.prepare(`
+      UPDATE scheduler_queue
+      SET status = 'queued', available_at = ?, updated_at = ?
+      WHERE status = 'running'
+    `).run(now.toISOString(), now.toISOString());
+    return result.changes;
+  }
+
   retryFailed(taskName?: string, now = new Date()): number {
     const result = taskName
       ? this.db.prepare(`

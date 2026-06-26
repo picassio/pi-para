@@ -13,7 +13,7 @@ import { createStore, extractSnippet } from "qmd-engine";
 import type { QMDStore, CollectionConfig } from "qmd-engine";
 import { parseFrontmatter } from "./frontmatter.js";
 import type { ParaUserConfig } from "./config.js";
-import { buildQmdProvidersFromParaConfig } from "./qmd-providers.js";
+import { buildQmdProvidersFromParaConfig, type QmdProvidersConfig } from "./qmd-providers.js";
 import { matchesScope } from "./scope.js";
 import type { PageFrontmatter, PageRef, ParaCategory } from "./wiki.js";
 import type { ProjectScope } from "./scope.js";
@@ -65,6 +65,22 @@ const RAW_CONTEXT = "Immutable source material: articles, documents, notes. Not 
 
 const pendingEmbeds = new WeakMap<QMDStore, Promise<void>>();
 
+// -- qmd provider config -----------------------------------------------------
+
+/**
+ * qmd-engine currently falls back to node-llama-cpp when no API provider is
+ * configured. pi-para never uses local LLMs, so provide an inert API endpoint
+ * whenever neither pi-para profiles nor legacy provider config exists. BM25
+ * search works without calling this endpoint; accidental vector/chat calls fail
+ * fast instead of downloading/building local models.
+ */
+const NO_LOCAL_PROVIDERS: QmdProvidersConfig = {
+  embed: {
+    url: "http://127.0.0.1:9",
+    model: "disabled-local-llm",
+  },
+};
+
 // -- qmd config loading ------------------------------------------------------
 
 /**
@@ -99,7 +115,7 @@ function loadQmdProviders(): Record<string, unknown> | undefined {
 export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): Promise<QMDStore> {
   // Prefer pi-para's in-memory provider profiles. Legacy QMD YAML remains a
   // fallback for migrated installs and tests that do not pass paraConfig.
-  const providers = opts.paraConfig
+  const configuredProviders = opts.paraConfig
     ? opts.paraConfig.qmd.providerConfig === "legacy-qmd-compatible"
       ? loadQmdProviders()
       : await buildQmdProvidersFromParaConfig(opts.paraConfig, {
@@ -107,6 +123,7 @@ export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): P
         authStorage: opts.authStorage,
       })
     : loadQmdProviders();
+  const providers = configuredProviders ?? NO_LOCAL_PROVIDERS;
 
   const store = await createStore({
     dbPath: join(wikiDir, ".qmd.sqlite"),
@@ -123,7 +140,7 @@ export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): P
           includeByDefault: false,
         },
       },
-      ...(providers ? { providers: providers as CollectionConfig["providers"] } : {}),
+      providers: providers as CollectionConfig["providers"],
     },
   });
 

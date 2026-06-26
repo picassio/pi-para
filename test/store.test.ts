@@ -77,6 +77,11 @@ describe("store", () => {
       expect(status.totalDocuments).toBeGreaterThan(0);
     }, 30_000);
 
+    it("uses an API LLM shim instead of node-llama-cpp when no provider config exists", async () => {
+      store = await openStore(wikiDir);
+      expect((store.internal as any).llm?.constructor?.name).not.toBe("LlamaCpp");
+    }, 30_000);
+
     it("sets up wiki and raw collections", async () => {
       store = await openStore(wikiDir);
       const collections = await store.listCollections();

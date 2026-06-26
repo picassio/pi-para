@@ -49,6 +49,7 @@ export class WikiScheduler {
   start(): void {
     if (!this.enabled || this.timer || this.closed) return;
     this.stopped = false;
+    this.state.requeueRunning();
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     (this.timer as { unref?: () => void }).unref?.();
