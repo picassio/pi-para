@@ -117,6 +117,10 @@
     "./status": {
       "types": "./dist/status.d.ts",
       "import": "./dist/status.js"
+    },
+    "./wiki-tool-guidance": {
+      "types": "./dist/wiki-tool-guidance.d.ts",
+      "import": "./dist/wiki-tool-guidance.js"
     }
   },
   "pi": {

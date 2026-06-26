@@ -54,6 +54,11 @@ import {
   LINT_PROMPT,
 } from "./templates/prompts.js";
 import { enqueueWikiMaintenance } from "./scheduler/index.js";
+import {
+  WIKI_TOOL_DESCRIPTIONS,
+  WIKI_TOOL_SNIPPETS,
+  getWikiToolGuidelines,
+} from "./wiki-tool-guidance.js";
 
 // -- Parameter schemas -------------------------------------------------------
 
@@ -1051,14 +1056,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_ingest",
     label: "Wiki Ingest",
-    description:
-      "Ingest a source (URL, file path, or raw text) into the wiki. " +
-      "Fetches the content, saves a raw copy, and returns it with schema and index " +
-      "so you can synthesize wiki pages via wiki_write.",
-    promptSnippet: "Ingest a URL, file, or text into the PARA wiki knowledge base",
-    promptGuidelines: [
-      "Use wiki_ingest when the user provides a URL, file path, or text to add to the knowledge base.",
-    ],
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_ingest,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_ingest,
+    promptGuidelines: getWikiToolGuidelines("wiki_ingest"),
     parameters: WikiIngestParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: ingesting...");
@@ -1099,16 +1099,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_query",
     label: "Wiki Query",
-    description:
-      "Search the wiki knowledge base with a natural language query. " +
-      "Returns relevant pages with content snippets. " +
-      "Use global=true to search across all project scopes.",
-    promptSnippet: "Search the PARA wiki for relevant knowledge pages",
-    promptGuidelines: [
-      "Use wiki_query BEFORE answering questions that might have relevant context in the wiki — architecture decisions, past debugging solutions, project conventions, or domain knowledge.",
-      "Use wiki_query when the user asks about something you previously discussed or captured in the wiki.",
-      "Wiki results include freshness indicators (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE and makes claims about code, files, configs, ports, or APIs — verify against the actual source before trusting. If you find the wiki is wrong, fix it immediately with wiki_edit.",
-    ],
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_query,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_query,
+    promptGuidelines: getWikiToolGuidelines("wiki_query"),
     parameters: WikiQueryParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: searching...");
@@ -1142,15 +1135,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_edit",
     label: "Wiki Edit",
-    description:
-      "Atomically edit an existing wiki page with exact oldText→newText replacements. " +
-      "Use this for surgical updates; wiki_write mode=replace is only for full-page rewrites.",
-    promptSnippet: "Surgically edit an existing wiki page. Every edits[].oldText must match exactly once, or no changes are written.",
-    promptGuidelines: [
-      "Use wiki_edit after wiki_read when fixing stale, incorrect, or incomplete content.",
-      "Prefer wiki_edit for existing pages. Use wiki_write mode=append for adding a new section, and mode=replace only for intentional full-page rewrites.",
-      "Keep oldText as small as possible while still unique in the page body.",
-    ],
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_edit,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_edit,
+    promptGuidelines: getWikiToolGuidelines("wiki_edit"),
     parameters: WikiEditParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: editing...");
@@ -1179,17 +1166,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_write",
     label: "Wiki Write",
-    description:
-      "Create, append, or intentionally replace wiki pages. " +
-      "mode=create never overwrites an existing page; use wiki_edit for surgical edits or mode=replace for full-page rewrites. " +
-      "Pages are automatically re-indexed for search after writing.",
-    promptSnippet: "Create/append/replace PARA wiki pages. Prefer wiki_edit for surgical updates to existing pages.",
-    promptGuidelines: [
-      "Use wiki_write to create new pages, append new sections, or intentionally replace an entire page.",
-      "mode=create is safe: if the page exists it is skipped, not overwritten.",
-      "Use wiki_edit after wiki_read for targeted fixes to existing pages.",
-      "Use mode=replace only when deliberately rewriting the entire page.",
-    ],
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_write,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_write,
+    promptGuidelines: getWikiToolGuidelines("wiki_write"),
     parameters: WikiWriteParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: writing...");
@@ -1234,13 +1213,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_read",
     label: "Wiki Read",
-    description:
-      "Read a specific wiki page by path (e.g. 'projects/auth-refactor') " +
-      "or by title. Returns the full page content with frontmatter metadata and a freshness indicator.",
-    promptSnippet: "Read a wiki page by path or title. Includes freshness indicator — verify STALE pages against actual code before trusting.",
-    promptGuidelines: [
-      "wiki_read results include a freshness indicator (FRESH/AGING/STALE/VERY STALE). When a page is AGING or STALE, verify claims about code, configs, or APIs against the actual source before trusting. Fix incorrect wiki pages with wiki_edit.",
-    ],
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_read,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_read,
+    promptGuidelines: getWikiToolGuidelines("wiki_read"),
     parameters: WikiReadParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: reading...");
@@ -1271,10 +1246,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_move",
     label: "Wiki Move",
-    description:
-      "Move a wiki page between PARA categories (e.g. move a completed project to archives). " +
-      "Updates frontmatter and re-indexes.",
-    promptSnippet: "Move a wiki page between PARA categories",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_move,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_move,
+    promptGuidelines: getWikiToolGuidelines("wiki_move"),
     parameters: WikiMoveParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: moving...");
@@ -1307,11 +1281,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_lint",
     label: "Wiki Lint",
-    description:
-      "Run wiki health checks: orphan pages, broken links, stale pages, " +
-      "scope drift, archive candidates, missing pages, frontmatter issues, " +
-      "index drift, and duplicate slugs. Auto-fixes simple issues by default.",
-    promptSnippet: "Run wiki health checks and auto-fix issues",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_lint,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_lint,
+    promptGuidelines: getWikiToolGuidelines("wiki_lint"),
     parameters: WikiLintParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: linting...");
@@ -1350,10 +1322,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_migrate",
     label: "Wiki Migrate",
-    description:
-      "Migrate all wiki pages to the current schema version. " +
-      "Runs pending schema migrations on any pages with an older schemaVersion.",
-    promptSnippet: "Batch-migrate all wiki pages to the current schema version",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_migrate,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_migrate,
+    promptGuidelines: getWikiToolGuidelines("wiki_migrate"),
     parameters: WikiMigrateParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: migrating...");
@@ -1391,12 +1362,9 @@ export function registerTools(
   pi.registerTool({
     name: "wiki_summarize",
     label: "Wiki Summarize",
-    description:
-      "Summarize a page, category, or the entire wiki. " +
-      "Target can be a page path (e.g. 'projects/auth-refactor'), " +
-      "a category name (e.g. 'projects'), or 'all'. " +
-      "Returns content with a summary prompt for you to synthesize.",
-    promptSnippet: "Summarize wiki pages, categories, or the entire wiki",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_summarize,
+    promptSnippet: WIKI_TOOL_SNIPPETS.wiki_summarize,
+    promptGuidelines: getWikiToolGuidelines("wiki_summarize"),
     parameters: WikiSummarizeParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       ctx.ui.setStatus("pi-para", "wiki: summarizing...");
@@ -1450,9 +1418,7 @@ export function createStandaloneTools(
   const wikiWrite: AgentTool<typeof WikiWriteParams> = {
     name: "wiki_write",
     label: "Wiki Write",
-    description:
-      "Create, append, or intentionally replace wiki pages. " +
-      "mode=create skips existing pages; use wiki_edit for surgical edits." ,
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_write,
     parameters: WikiWriteParams,
     execute: (_toolCallId, params) => writeExec(params),
   };
@@ -1460,8 +1426,7 @@ export function createStandaloneTools(
   const wikiEdit: AgentTool<typeof WikiEditParams> = {
     name: "wiki_edit",
     label: "Wiki Edit",
-    description:
-      "Atomically edit an existing wiki page with exact oldText→newText replacements.",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_edit,
     parameters: WikiEditParams,
     execute: (_toolCallId, params) => editExec(params),
   };
@@ -1469,8 +1434,7 @@ export function createStandaloneTools(
   const wikiRead: AgentTool<typeof WikiReadParams> = {
     name: "wiki_read",
     label: "Wiki Read",
-    description:
-      "Read a specific wiki page by path (e.g. 'projects/auth-refactor') or by title.",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_read,
     parameters: WikiReadParams,
     execute: (_toolCallId, params) => readExec(params),
   };
@@ -1478,8 +1442,7 @@ export function createStandaloneTools(
   const wikiQuery: AgentTool<typeof WikiQueryParams> = {
     name: "wiki_query",
     label: "Wiki Query",
-    description:
-      "Search the wiki knowledge base with a natural language query. Returns relevant pages.",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_query,
     parameters: WikiQueryParams,
     execute: (_toolCallId, params) => queryExec(params),
   };
@@ -1487,7 +1450,7 @@ export function createStandaloneTools(
   const wikiMove: AgentTool<typeof WikiMoveParams> = {
     name: "wiki_move",
     label: "Wiki Move",
-    description: "Move a wiki page between PARA categories.",
+    description: WIKI_TOOL_DESCRIPTIONS.wiki_move,
     parameters: WikiMoveParams,
     execute: (_toolCallId, params) => moveExec(params),
   };

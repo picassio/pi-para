@@ -45,7 +45,7 @@ Write to the wiki immediately when you:
 - Learn how a system actually works (vs. how you assumed)
 - Establish a convention or pattern others should follow
 
-Use `wiki_write(mode: 'edit')` for surgical updates to existing pages. Use `wiki_write(mode: 'append')` to add new sections. Don't defer — context and reasoning degrade with time.
+Use `wiki_edit` for surgical updates to existing pages. Use `wiki_write(mode: 'append')` to add new sections and `wiki_write(mode: 'replace')` only for intentional full-page rewrites. Don't defer — context and reasoning degrade with time.
 
 ## 4. When Debugging — Search First
 

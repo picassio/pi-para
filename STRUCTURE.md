@@ -49,6 +49,7 @@ skills/
 | `src/store.ts` | QMD SDK store lifecycle, search, reindex/embed helpers |
 | `src/qmd-providers.ts` | Convert pi-para provider profiles into QMD SDK provider config |
 | `src/context.ts` | Wiki context injection into Pi sessions |
+| `src/wiki-tool-guidance.ts` | Shared wiki tool descriptions, prompt snippets, and behavior guidance |
 | `src/state.ts` | Legacy/session capture state DB helpers |
 
 ### Config/setup/diagnostics

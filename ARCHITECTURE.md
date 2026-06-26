@@ -120,7 +120,7 @@ secret:<name>
 none
 ```
 
-## Tool safety
+## Tool safety and guidance
 
 Mutation tools are intentionally split:
 
@@ -129,6 +129,12 @@ Mutation tools are intentionally split:
 - `wiki_write mode=replace`: explicit full-page replacement.
 
 This avoids accidental destructive rewrites from broad LLM edits.
+
+Tool API contracts and behavioral guidance are separated:
+
+- `src/wiki-tool-guidance.ts`: canonical tool descriptions, prompt snippets, per-tool guidelines, and shared wiki behavior guidance.
+- `src/tools.ts`: host registration, schemas, rendering, and execution only.
+- `src/context.ts`: injects the shared guidance once with wiki context so agents learn when to search, verify stale pages, and self-heal with `wiki_edit`.
 
 ## GEPA optimizer
 

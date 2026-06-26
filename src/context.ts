@@ -20,6 +20,7 @@ import type { StateDB, PageSummary } from "./state.js";
 import { readIndex, readSchema, listPages, readPage } from "./wiki.js";
 import { matchesScope } from "./scope.js";
 import { formatFreshness } from "./query.js";
+import { buildWikiToolGuidanceSection } from "./wiki-tool-guidance.js";
 
 // -- Types ------------------------------------------------------------------
 
@@ -205,17 +206,10 @@ export async function buildContext(
     return "";
   }
 
-  // Reminder to use wiki tools proactively — this is injected into every turn
-  // so the LLM doesn't forget between tool calls.
-  parts.push(
-    "Persist major decisions/debugging/conventions with wiki_write without being asked."
-  );
-  parts.push(
-    "wiki_write: prefer resources/, kebab-case scope/tags, add [[wikilinks]], never store secrets. Use wiki_edit for surgical existing-page updates; mode=create will not overwrite."
-  );
-  parts.push(
-    "Stale wiki claims about code/configs/APIs must be verified against source; fix wrong pages with wiki_edit."
-  );
+  // Tool behavior guidance is centralized here rather than duplicated across
+  // individual tool descriptions. If no wiki context was requested/built, keep
+  // the historical empty-string behavior.
+  parts.push(buildWikiToolGuidanceSection());
 
   return header + "\n" + parts.join("\n\n") + "\n" + footer;
 }
