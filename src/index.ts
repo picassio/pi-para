@@ -331,9 +331,13 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     } satisfies ParaSessionState);
 
     const schedulerHandlers = {} as Record<string, any>;
+    const schedulerConfig = loadedConfig.userConfig?.scheduler;
+    const wikiConfig = loadedConfig.userConfig?.wiki;
+    const autoCaptureEnabled = wikiConfig?.autoCapture !== false;
+    const startupCatchupEnabled = autoCaptureEnabled && wikiConfig?.captureOnStartup !== false && schedulerConfig?.startupCatchup !== false;
     try {
       const loadedParaConfig = await loadParaConfig({ migrate: true });
-      const registry = await createPiModelRegistry();
+      const registry = autoCaptureEnabled ? await createPiModelRegistry() : null;
       if (registry) {
         const captureSelection = getCaptureSelection(loadedParaConfig.config);
         const captureModel = resolveSelectedModel(captureSelection, registry.modelRegistry, {
@@ -356,19 +360,19 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       // Capture handler registration is best-effort; manual capture remains available.
     }
 
-    const schedulerEnabled = !isPrintModeProcess();
+    const schedulerEnabled = !isPrintModeProcess() && schedulerConfig?.enabled !== false;
     const scheduler = schedulerEnabled
       ? startWikiScheduler({
         wikiDir,
         enabled: true,
-        intervalMs: 15 * 60_000,
+        intervalMs: (schedulerConfig?.intervalMinutes ?? 15) * 60_000,
         storeProvider: () => store,
         markDirty: () => markContextDirty(),
         handlers: schedulerHandlers,
       })
       : null;
 
-    if (scheduler) {
+    if (scheduler && startupCatchupEnabled) {
       try {
         const stateDb = new StateDB(wikiDir);
         await enqueueCompletedSessionsFromRegistry(scheduler, wikiDir, { stateDb });
