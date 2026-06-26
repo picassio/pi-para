@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { QMDStore } from "qmd-engine";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { ProjectScope } from "./scope.js";
 import type { LintReport } from "./lint.js";
@@ -723,8 +723,8 @@ ${goal} — verified and complete.
           }
         } else if (choice.startsWith("[Capture]")) {
           try {
-            const { getProviders, getModels } = await import("@mariozechner/pi-ai");
-            const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+            const { getProviders, getModels } = await import("@earendil-works/pi-ai/compat");
+            const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
             const authStorage = AuthStorage.create();
             const availableProviders = getProviders().filter((p: string) => authStorage.hasAuth(p));
 

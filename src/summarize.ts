@@ -16,7 +16,7 @@ import type { ProjectScope } from "./scope.js";
 import {
   convertToLlm,
   serializeConversation,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import {
   SUMMARIZE_SYSTEM_PROMPT,
   ITERATIVE_UPDATE_PROMPT,
@@ -72,7 +72,7 @@ function extractTextContent(content: unknown): string {
 
 /**
  * Fallback serialization that mirrors pi's serializeConversation format.
- * Used when @mariozechner/pi-coding-agent is not available.
+ * Used when @earendil-works/pi-coding-agent is not available.
  *
  * Formats: [User]:, [Assistant]:, [Assistant thinking]:,
  *          [Assistant tool calls]:, [Tool result]:
@@ -143,7 +143,7 @@ function serializeMessagesFallback(messages: unknown[]): string {
  * (bashExecution, compactionSummary, branchSummary, etc.). Falls back to
  * a compatible reimplementation for plain user/assistant/toolResult messages.
  *
- * @param messages - AgentMessage[] from @mariozechner/pi-agent-core
+ * @param messages - AgentMessage[] from @earendil-works/pi-agent-core
  * @returns Serialized text in [User]: / [Assistant]: / [Tool result]: format
  */
 export function serializeSessionForWiki(

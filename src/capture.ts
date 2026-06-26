@@ -8,10 +8,10 @@
  * Both are fully automatic — no user confirmation prompts.
  */
 
-import type { Model } from "@mariozechner/pi-ai";
-import { Agent } from "@mariozechner/pi-agent-core";
-import type { AgentMessage, AgentEvent } from "@mariozechner/pi-agent-core";
-import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentEvent } from "@earendil-works/pi-agent-core";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { QMDStore } from "qmd-engine";
 
 import type { ProjectScope } from "./scope.js";

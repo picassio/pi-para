@@ -20,7 +20,7 @@ import { formatLegacyDaemonWarning, isLegacyDaemonCommand } from "./cli-legacy.j
 async function createModel(modelArg?: string) {
   const { parse } = await import("yaml");
   const { readFileSync } = await import("node:fs");
-  const { getModel, getProviders, getEnvApiKey } = await import("@mariozechner/pi-ai");
+  const { getModel, getProviders, getEnvApiKey } = await import("@earendil-works/pi-ai/compat");
 
   // 0. Try config.json daemonModel
   if (!modelArg) {
@@ -47,7 +47,7 @@ async function createModel(modelArg?: string) {
         // Resolve API key: try AuthStorage first (OAuth), then env vars
         let authStore: any = null;
         try {
-          const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+          const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
           authStore = AuthStorage.create();
         } catch {}
         const getApiKey = async (p: string) => {
@@ -65,9 +65,9 @@ async function createModel(modelArg?: string) {
 
   // 2. Try pi's auth storage (auth.json) — supports OAuth (Anthropic, GitHub Copilot, etc.)
   try {
-    const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+    const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
     const authStorage = AuthStorage.create();
-    const { getModels } = await import("@mariozechner/pi-ai");
+    const { getModels } = await import("@earendil-works/pi-ai/compat");
 
     // Check providers in preference order: anthropic first (best quality)
     const preferredProviders = ["anthropic", "openai", "openrouter", "google-antigravity", "github-copilot"];
@@ -97,7 +97,7 @@ async function createModel(modelArg?: string) {
   for (const provider of providers) {
     const key = getEnvApiKey(provider);
     if (key) {
-      const { getModels } = await import("@mariozechner/pi-ai");
+      const { getModels } = await import("@earendil-works/pi-ai/compat");
       const models = getModels(provider as any);
       const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
       const picked = sorted.find(m => !m.reasoning) ?? sorted[0];

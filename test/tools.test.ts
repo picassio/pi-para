@@ -8,7 +8,7 @@ import { openStore, closeStore } from "../src/store.js";
 import type { QMDStore } from "../src/store.js";
 import type { ProjectScope } from "../src/scope.js";
 import { createStandaloneTools } from "../src/tools.js";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
 // -- Helpers -----------------------------------------------------------------
 

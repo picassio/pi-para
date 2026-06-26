@@ -27,6 +27,12 @@ export interface OpenStoreOptions {
   paraConfig?: ParaUserConfig;
   secretsPath?: string;
   authStorage?: { getApiKey(provider: string): Promise<string | undefined> };
+  /**
+   * Start slow vector embedding in the background after BM25 indexing.
+   * Pi session startup disables this so single-shot `pi -p` processes can exit
+   * promptly; callers can still invoke embedIfNeeded() explicitly.
+   */
+  backgroundEmbed?: boolean;
 }
 
 export interface WikiSearchOptions {
@@ -87,8 +93,8 @@ function loadQmdProviders(): Record<string, unknown> | undefined {
  * - wiki: all .md files except raw/
  * - raw: .md files under raw/, not included in default queries
  *
- * Adds PARA category contexts, runs update() for BM25,
- * and schedules embed() in the background.
+ * Adds PARA category contexts and runs update() for BM25. When requested,
+ * also schedules embed() in the background.
  */
 export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): Promise<QMDStore> {
   // Prefer pi-para's in-memory provider profiles. Legacy QMD YAML remains a
@@ -132,7 +138,7 @@ export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): P
   // Sync filesystem -> BM25 index (fast, search ready immediately)
   await store.update();
 
-  if (opts.paraConfig?.qmd.embedEnabled !== false) {
+  if (opts.backgroundEmbed !== false && opts.paraConfig?.qmd.embedEnabled !== false) {
     // Schedule embedding in background (non-blocking).
     // BM25 search works immediately; hybrid search improves once embed completes.
     // Suppress console.error from qmd's internal embed failures.
@@ -164,7 +170,10 @@ export async function closeStore(store: QMDStore): Promise<void> {
   const pending = pendingEmbeds.get(store);
   if (pending) {
     // Wait for pending embed with a short timeout — don't hang forever
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+    const timeout = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5_000);
+      (timer as { unref?: () => void }).unref?.();
+    });
     await Promise.race([pending, timeout]);
     pendingEmbeds.delete(store);
   }

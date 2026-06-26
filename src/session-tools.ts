@@ -8,7 +8,7 @@
 
 import { readFileSync } from "node:fs";
 import { Type, type Static } from "typebox";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
 // -- Session loading ---------------------------------------------------------
 

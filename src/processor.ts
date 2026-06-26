@@ -3,9 +3,9 @@
  * to extract knowledge and write wiki pages.
  */
 
-import { Agent } from "@mariozechner/pi-agent-core";
-import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
-import type { Model } from "@mariozechner/pi-ai";
+import { Agent } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type { Model } from "@earendil-works/pi-ai";
 import type { QMDStore } from "qmd-engine";
 
 import {
@@ -25,7 +25,7 @@ import { redactSecrets } from "./redact.js";
 import { reindex, searchWiki } from "./store.js";
 import { appendSessionDigest } from "./raw.js";
 import { Type } from "typebox";
-import { StringEnum } from "@mariozechner/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
 
 import { loadSession, createSessionTools } from "./session-tools.js";
 import type { LoadedSession } from "./session-tools.js";

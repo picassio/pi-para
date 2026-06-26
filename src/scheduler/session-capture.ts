@@ -1,7 +1,7 @@
 import { appendFile, readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import type { QMDStore } from "qmd-engine";
 import { StateDB } from "../state.js";
 import { processSession, type ProcessResult } from "../processor.js";

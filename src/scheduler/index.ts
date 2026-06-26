@@ -24,6 +24,8 @@ export class WikiScheduler {
   readonly state: SchedulerStateDB;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private stopped = false;
+  private closed = false;
   private readonly intervalMs: number;
   private readonly enabled: boolean;
   private readonly storeProvider: () => QMDStore | null;
@@ -45,19 +47,28 @@ export class WikiScheduler {
   }
 
   start(): void {
-    if (!this.enabled || this.timer) return;
+    if (!this.enabled || this.timer || this.closed) return;
+    this.stopped = false;
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.intervalMs);
     (this.timer as { unref?: () => void }).unref?.();
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (!this.running) this.closeState();
+  }
+
+  private closeState(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.state.close();
   }
 
   enqueue(taskName: string, payload: unknown = {}, opts: { priority?: number; dedupeKey?: string; availableAt?: Date } = {}): number {
+    if (this.closed) throw new Error("Wiki scheduler is stopped.");
     return this.state.enqueue(taskName, payload, opts);
   }
 
@@ -66,11 +77,12 @@ export class WikiScheduler {
   }
 
   async tick(): Promise<number> {
-    if (!this.enabled || this.running) return 0;
+    if (!this.enabled || this.running || this.stopped || this.closed) return 0;
     this.running = true;
     let processed = 0;
     try {
       for (;;) {
+        if (this.stopped) break;
         const item = this.state.claimNext();
         if (!item) break;
         await this.runItem(item);
@@ -78,6 +90,7 @@ export class WikiScheduler {
       }
     } finally {
       this.running = false;
+      if (this.stopped) this.closeState();
     }
     return processed;
   }
@@ -92,10 +105,12 @@ export class WikiScheduler {
 
     try {
       await handler(item, this);
+      if (this.stopped || this.closed) return;
       const finished = new Date();
       this.state.complete(item.id, finished);
       this.state.recordHistory(item.taskName, item.payload, "done", started, finished, finished.getTime() - started.getTime(), null);
     } catch (err) {
+      if (this.stopped || this.closed) return;
       const retryAt = new Date(Date.now() + Math.min(60_000, 1_000 * 2 ** item.attempts));
       this.state.fail(item.id, err instanceof Error ? err.message : String(err), { retryAt, now: new Date() });
     }
@@ -139,6 +154,11 @@ export function startWikiScheduler(opts: WikiSchedulerOptions): WikiScheduler {
 
 export function stopWikiScheduler(wikiDir: string, dbPath?: string): void {
   const key = dbPath ?? getParaPaths({ wikiDir }).schedulerDbPath;
+  const timer = debounceTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    debounceTimers.delete(key);
+  }
   const scheduler = schedulers.get(key);
   if (!scheduler) return;
   scheduler.stop();

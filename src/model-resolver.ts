@@ -1,4 +1,4 @@
-import type { Model } from "@mariozechner/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import type { ProviderCredentialRef, ParaUserConfig } from "./config.js";
 import { resolveCredentialRef } from "./credentials.js";
 
@@ -82,7 +82,7 @@ export function getCaptureSelection(config: ParaUserConfig): ModelSelection {
 
 export async function createPiModelRegistry(): Promise<{ authStorage: AuthStorageLike; modelRegistry: ModelRegistryLike } | null> {
   try {
-    const mod = await import("@mariozechner/pi-coding-agent");
+    const mod = await import("@earendil-works/pi-coding-agent");
     const typed = mod as unknown as {
       AuthStorage?: { create(): AuthStorageLike };
       ModelRegistry?: { create(authStorage: AuthStorageLike): ModelRegistryLike };

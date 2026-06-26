@@ -92,6 +92,30 @@ describe("scheduler", () => {
     }
   });
 
+  it("stops cleanly while a handler is still running", async () => {
+    const file = await tempDb();
+    try {
+      let release!: () => void;
+      const running = new Promise<void>((resolve) => { release = resolve; });
+      const scheduler = new WikiScheduler({
+        wikiDir: file.dir,
+        dbPath: file.dbPath,
+        handlers: {
+          slow: async () => { await running; },
+        },
+      });
+
+      scheduler.enqueue("slow", {});
+      const tick = scheduler.tick();
+      scheduler.stop();
+      release();
+
+      await expect(tick).resolves.toBe(1);
+    } finally {
+      await file.cleanup();
+    }
+  });
+
   it("marks unknown tasks failed", async () => {
     const file = await tempDb();
     try {

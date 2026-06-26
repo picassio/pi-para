@@ -20,9 +20,9 @@ let mockAgentMessages: any[] = [];
 // Control mock agent behavior per test
 let mockAgentBehavior: "nothing" | "write-page" | "timeout" | "error" = "nothing";
 
-vi.mock("@mariozechner/pi-agent-core", async () => {
-  const actual = await vi.importActual<typeof import("@mariozechner/pi-agent-core")>(
-    "@mariozechner/pi-agent-core",
+vi.mock("@earendil-works/pi-agent-core", async () => {
+  const actual = await vi.importActual<typeof import("@earendil-works/pi-agent-core")>(
+    "@earendil-works/pi-agent-core",
   );
 
   class MockAgent {

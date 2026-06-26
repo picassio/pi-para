@@ -11,7 +11,7 @@
 import { join } from "node:path";
 import { homedir, networkInterfaces } from "node:os";
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { QMDStore } from "qmd-engine";
 
 import type { ProjectScope } from "./scope.js";
@@ -163,6 +163,10 @@ function checkWebServerAlive(port: number): Promise<boolean> {
   });
 }
 
+function isPrintModeProcess(argv = process.argv): boolean {
+  return argv.includes("-p") || argv.includes("--print") || argv.includes("--mode") && argv[argv.indexOf("--mode") + 1] === "json";
+}
+
 function getLanIp(): string | null {
   const interfaces = networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -240,6 +244,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       store = await openStore(wikiDir, {
         paraConfig: loadedConfig.userConfig ?? undefined,
         secretsPath: loadedConfig.secretsPath ?? undefined,
+        backgroundEmbed: false,
       });
       storeDisabled = false;
       markContextDirty(); // rebuild context now that store works
@@ -302,6 +307,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       store = await openStore(wikiDir, {
         paraConfig: loadedConfig.userConfig ?? undefined,
         secretsPath: loadedConfig.secretsPath ?? undefined,
+        backgroundEmbed: false,
       });
     } catch (err) {
       store = null;
@@ -350,22 +356,27 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       // Capture handler registration is best-effort; manual capture remains available.
     }
 
-    const scheduler = startWikiScheduler({
-      wikiDir,
-      enabled: true,
-      intervalMs: 15 * 60_000,
-      storeProvider: () => store,
-      markDirty: () => markContextDirty(),
-      handlers: schedulerHandlers,
-    });
+    const schedulerEnabled = !isPrintModeProcess();
+    const scheduler = schedulerEnabled
+      ? startWikiScheduler({
+        wikiDir,
+        enabled: true,
+        intervalMs: 15 * 60_000,
+        storeProvider: () => store,
+        markDirty: () => markContextDirty(),
+        handlers: schedulerHandlers,
+      })
+      : null;
 
-    try {
-      const stateDb = new StateDB(wikiDir);
-      await enqueueCompletedSessionsFromRegistry(scheduler, wikiDir, { stateDb });
-      stateDb.close();
-      void scheduler.tick();
-    } catch {
-      // Startup capture catch-up is best-effort.
+    if (scheduler) {
+      try {
+        const stateDb = new StateDB(wikiDir);
+        await enqueueCompletedSessionsFromRegistry(scheduler, wikiDir, { stateDb });
+        stateDb.close();
+        void scheduler.tick();
+      } catch {
+        // Startup capture catch-up is best-effort.
+      }
     }
 
     // Check if web wiki server is running (don't start our own yet)

@@ -14,7 +14,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   BeforeAgentStartEventResult,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import type { ProjectScope } from "./scope.js";
 import type { StateDB, PageSummary } from "./state.js";
 import { readIndex, readSchema, listPages, readPage } from "./wiki.js";

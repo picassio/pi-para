@@ -85,7 +85,7 @@ export async function resolveCredentialRef(
 
 async function createPiAuthStorage(): Promise<{ getApiKey(provider: string): Promise<string | undefined> } | null> {
   try {
-    const mod = await import("@mariozechner/pi-coding-agent");
+    const mod = await import("@earendil-works/pi-coding-agent");
     const AuthStorage = (mod as unknown as { AuthStorage?: { create(): { getApiKey(provider: string): Promise<string | undefined> } } }).AuthStorage;
     return AuthStorage?.create() ?? null;
   } catch {
