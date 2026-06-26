@@ -301,6 +301,19 @@ describe("summarize", () => {
       expect(result).toContain("Summarize the following wiki pages");
     });
 
+    it("bounds brief all-wiki overview prompts", () => {
+      const pages = Array.from({ length: 500 }, (_, i) => makePage({
+        slug: `page-${i}`,
+        body: `# Page ${i}\n\n${"Long body content ".repeat(500)}`,
+      }));
+
+      const result = generateOverviewPrompt(pages, makeScope(), { depth: "brief", maxChars: 12_000 });
+
+      expect(result.length).toBeLessThan(13_000);
+      expect(result).toContain("Input mode: compact metadata/excerpts");
+      expect(result).toContain("page(s) omitted");
+    });
+
     it("includes frontmatter metadata for each page", () => {
       const page = makePage({
         slug: "docker-patterns",

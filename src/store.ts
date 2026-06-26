@@ -50,6 +50,14 @@ export interface WikiSearchResult {
   frontmatter: PageFrontmatter;
 }
 
+interface RawQmdSearchResult {
+  displayPath: string;
+  score: number;
+  body?: string;
+  title?: string;
+  [key: string]: unknown;
+}
+
 // -- PARA context descriptions -----------------------------------------------
 
 const PARA_CONTEXTS: Record<string, string> = {
@@ -200,8 +208,9 @@ export async function closeStore(store: QMDStore): Promise<void> {
 /**
  * Search the wiki with scope and category filtering.
  *
- * Uses BM25 search (searchLex) which requires no LLM. Each result's
- * frontmatter is parsed to apply scope/category/archive filters.
+ * Uses vector search when an embedding index is available, merged with BM25
+ * lexical search for exact keyword matches. Each result's frontmatter is parsed
+ * to apply scope/category/archive filters.
  */
 export async function searchWiki(
   store: QMDStore,
@@ -224,13 +233,14 @@ export async function searchWiki(
 
   const fetchLimit = opts.scope ? limit * 3 : limit;
 
-  const rawResults = await store.searchLex(query, {
+  const lexResults = await store.searchLex(query, {
     limit: fetchLimit,
     collection: "wiki",
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     graphBoost: opts.graphBoost ?? true,
   });
 
+  const rawResults = await mergeLexAndVectorResults(store, query, lexResults, fetchLimit);
   const results: WikiSearchResult[] = [];
 
   for (const result of rawResults) {
@@ -263,7 +273,7 @@ export async function searchWiki(
       page: {
         category,
         slug,
-        title: frontmatter.title || result.title,
+        title: frontmatter.title || result.title || slug,
         path: `${category}/${slug}.md`,
       },
       score: result.score,
@@ -275,6 +285,38 @@ export async function searchWiki(
   }
 
   return results;
+}
+
+async function mergeLexAndVectorResults(
+  store: QMDStore,
+  query: string,
+  lexResults: RawQmdSearchResult[],
+  limit: number,
+): Promise<RawQmdSearchResult[]> {
+  let vecResults: RawQmdSearchResult[] = [];
+  try {
+    const status = await store.getStatus();
+    const llm = (store.internal as unknown as { llm?: unknown }).llm;
+    const embedModel = (llm as { embedModelName?: string } | undefined)?.embedModelName;
+    if (status.hasVectorIndex && llm && embedModel) {
+      vecResults = await store.internal.searchVec(query, embedModel, limit, "wiki", llm as any) as RawQmdSearchResult[];
+    }
+  } catch {
+    // Semantic search is best-effort; lexical BM25 remains the reliable fallback.
+  }
+
+  const merged = new Map<string, RawQmdSearchResult>();
+  for (const result of lexResults) {
+    merged.set(result.displayPath, { ...result, score: result.score * 0.85 });
+  }
+  for (const result of vecResults) {
+    const existing = merged.get(result.displayPath);
+    if (!existing || result.score > existing.score) {
+      merged.set(result.displayPath, result);
+    }
+  }
+
+  return [...merged.values()].sort((a, b) => b.score - a.score).slice(0, limit * 2);
 }
 
 /**

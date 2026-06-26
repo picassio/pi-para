@@ -959,10 +959,12 @@ function createSummarizeExecute(
       };
     }
 
-    // Generate overview prompt for the LLM
-    const overviewPrompt = generateOverviewPrompt(pages, scope);
+    // Generate a bounded overview prompt for the LLM. For large targets like
+    // `all`, brief mode must not dump every full page body into model context.
+    const depth = params.depth ?? "brief";
+    const overviewPrompt = generateOverviewPrompt(pages, scope, { depth });
     const depthNote =
-      params.depth === "detailed"
+      depth === "detailed"
         ? "\nProvide a DETAILED summary with full Key Facts, Insights, and Connections for each theme."
         : "\nProvide a BRIEF overview — one paragraph per theme, focus on high-level patterns.";
 

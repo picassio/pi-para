@@ -246,28 +246,84 @@ export function generateSummary(
  * @param scope - Current project scope for context
  * @returns Prompt string for the LLM
  */
+export interface OverviewPromptOptions {
+  depth?: "brief" | "detailed";
+  maxChars?: number;
+}
+
+const DEFAULT_BRIEF_OVERVIEW_MAX_CHARS = 28_000;
+const DEFAULT_DETAILED_OVERVIEW_MAX_CHARS = 80_000;
+const BRIEF_EXCERPT_CHARS = 180;
+const DETAILED_BODY_CHARS = 2_000;
+
 export function generateOverviewPrompt(
   pages: WikiPage[],
   scope: ProjectScope,
+  options: OverviewPromptOptions = {},
 ): string {
+  const depth = options.depth ?? "brief";
+  const maxChars = options.maxChars ?? (depth === "detailed" ? DEFAULT_DETAILED_OVERVIEW_MAX_CHARS : DEFAULT_BRIEF_OVERVIEW_MAX_CHARS);
   const scopeInfo = `Current scope: ${scope.name} (tags: ${scope.include.join(", ")})`;
-
-  const pageEntries = pages.map((page) => {
-    const fm = page.frontmatter;
-    return [
-      `### ${fm.title} (${page.category}/${page.slug})`,
-      `PARA: ${fm.para} | Scope: ${fm.scope.join(", ")} | Tags: ${fm.tags.join(", ")}`,
-      "",
-      page.body,
-    ].join("\n");
-  });
-
-  return [
+  const header = [
     OVERVIEW_PROMPT,
     "",
     scopeInfo,
     `Total pages: ${pages.length}`,
+    `Input mode: ${depth === "detailed" ? "bounded detailed excerpts" : "compact metadata/excerpts"}`,
     "",
-    ...pageEntries,
   ].join("\n");
+
+  const entries: string[] = [];
+  let usedChars = header.length;
+  let omitted = 0;
+
+  for (const page of pages) {
+    const entry = depth === "detailed" ? detailedPageEntry(page) : briefPageEntry(page);
+    if (usedChars + entry.length + 2 > maxChars) {
+      omitted++;
+      continue;
+    }
+    entries.push(entry);
+    usedChars += entry.length + 2;
+  }
+
+  const omittedNote = omitted > 0
+    ? `\n\n[${omitted} page(s) omitted to keep wiki_summarize within the context budget. Use a category, page path, or depth=\"detailed\" on a narrower target for more detail.]`
+    : "";
+
+  return `${header}${entries.join("\n\n")}${omittedNote}`;
+}
+
+function briefPageEntry(page: WikiPage): string {
+  const fm = page.frontmatter;
+  const excerpt = firstUsefulExcerpt(page.body, BRIEF_EXCERPT_CHARS);
+  return [
+    `- ${fm.title} (${page.category}/${page.slug})`,
+    `  PARA: ${fm.para} | Scope: ${fm.scope.join(", ")} | Tags: ${fm.tags.join(", ") || "-"} | Updated: ${fm.updated ?? "-"}`,
+    excerpt ? `  Excerpt: ${excerpt}` : undefined,
+    fm.links?.length ? `  Links: ${fm.links.slice(0, 8).map((link) => `[[${link}]]`).join(", ")}` : undefined,
+  ].filter(Boolean).join("\n");
+}
+
+function detailedPageEntry(page: WikiPage): string {
+  const fm = page.frontmatter;
+  return [
+    `### ${fm.title} (${page.category}/${page.slug})`,
+    `PARA: ${fm.para} | Scope: ${fm.scope.join(", ")} | Tags: ${fm.tags.join(", ")}`,
+    `Updated: ${fm.updated ?? "-"} | Links: ${(fm.links ?? []).slice(0, 12).map((link) => `[[${link}]]`).join(", ") || "-"}`,
+    "",
+    truncateForSummary(page.body, DETAILED_BODY_CHARS),
+  ].join("\n");
+}
+
+function firstUsefulExcerpt(body: string, maxChars: number): string {
+  const cleaned = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#") && !/^[-*]\s*\[?\[?/.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  return cleaned.length <= maxChars ? cleaned : `${cleaned.slice(0, maxChars - 1)}…`;
 }
