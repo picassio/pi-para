@@ -1,5 +1,16 @@
+# LEGACY / DEPRECATED
+#
+# pi-para no longer requires a systemd daemon. Current installs use the
+# in-process scheduler started by the Pi extension. This service file is kept
+# only for users intentionally running the legacy foreground daemon.
+#
+# Prefer:
+#   pi-para setup
+#   pi-para doctor
+#   /wiki-scheduler status
+
 [Unit]
-Description=pi-para knowledge capture daemon
+Description=pi-para legacy knowledge capture daemon
 After=network.target
 
 [Service]

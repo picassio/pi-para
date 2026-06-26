@@ -397,7 +397,7 @@ describe("autoCapture", () => {
     expect(mockAgentOptions).not.toBeNull();
     expect(mockAgentOptions.initialState.systemPrompt).toContain("knowledge capture");
     expect(mockAgentOptions.initialState.model).toBe(testModel);
-    expect(mockAgentOptions.initialState.tools.length).toBe(4); // write, read, query, move
+    expect(mockAgentOptions.initialState.tools.length).toBe(5); // write, edit, read, query, move
     expect(mockAgentOptions.initialState.messages).toEqual([]);
     expect(mockAgentOptions.getApiKey).toBeDefined();
   });

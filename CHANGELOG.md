@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Primary setup/runtime documentation now targets the no-daemon in-process scheduler architecture.
+- Added cross-platform install wrappers in `scripts/install.sh` and `scripts/install.ps1`.
+- Deprecated legacy daemon setup artifacts: `setup.sh` now delegates to the current setup flow, and `pi-para-daemon.service` / `DAEMON-PLAN.md` are marked legacy.
+- Legacy daemon CLI commands (`start`, `stop`, `process`, `process-recent`, `retry-failed`, `history`, `legacy-status`) now print deprecation guidance toward scheduler/task commands.
+- `pi-para status` now reports config/wiki/page/scheduler/QMD status instead of legacy daemon status; old daemon status moved to `pi-para legacy-status`.
+- Added `pi-para status --json` and `npm run smoke:install` for fresh-install smoke validation.
+- Added GitHub Actions CI for typecheck, tests, coverage, build, and fresh-install smoke validation.
+
 ## [0.5.5] — 2026-05-07
 
 ### Changed

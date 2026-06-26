@@ -53,6 +53,7 @@ import {
   QUERY_PROMPT,
   LINT_PROMPT,
 } from "./templates/prompts.js";
+import { enqueueWikiMaintenance } from "./scheduler/index.js";
 
 // -- Parameter schemas -------------------------------------------------------
 
@@ -339,36 +340,17 @@ function createQueryExecute(
 
 // -- Background maintenance --------------------------------------------------
 
-const maintenanceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
 /**
  * Schedule index rebuild + QMD reindex after latency-sensitive edits.
- * Debounced per wiki directory so a burst of wiki_edit calls only runs once.
+ * Debounced per wiki directory and coordinated through the scheduler queue so
+ * multiple Pi processes do not run the same maintenance task concurrently.
  */
 function scheduleWikiMaintenance(
   wikiDir: string,
   store: QMDStore,
   markDirty: () => void,
 ): void {
-  const existing = maintenanceTimers.get(wikiDir);
-  if (existing) clearTimeout(existing);
-
-  const timer = setTimeout(() => {
-    maintenanceTimers.delete(wikiDir);
-    void (async () => {
-      try {
-        await rebuildIndex(wikiDir);
-        await reindex(store);
-        markDirty();
-        await gitCommit(wikiDir, "wiki: rebuild index and refresh search");
-      } catch {
-        // Background maintenance is best-effort. Foreground wiki edits must not
-        // fail or hang because index/search refresh is temporarily unavailable.
-      }
-    })();
-  }, 2_000);
-
-  maintenanceTimers.set(wikiDir, timer);
+  enqueueWikiMaintenance(wikiDir, store, markDirty);
 }
 
 // -- Factory: wiki_write execute ---------------------------------------------

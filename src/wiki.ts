@@ -179,6 +179,7 @@ const DEFAULT_SESSIONS = "# Session Digests\n";
 const DEFAULT_GITIGNORE = `# pi-para generated state (do not version)
 .qmd.sqlite*
 .daemon.sqlite*
+.pi-para.sqlite*
 gepa/input/
 gepa/output/
 

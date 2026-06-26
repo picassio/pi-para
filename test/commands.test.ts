@@ -559,12 +559,27 @@ describe("commands", () => {
     });
   });
 
-  describe("registerCommands", () => {
-    it("should register all 11 commands", () => {
+  describe("/wiki-scheduler", () => {
+    it("should show scheduler status and keep /wiki-daemon as alias", async () => {
       const { pi, commands } = createMockPi();
       registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
 
-      expect(commands.size).toBe(11);
+      expect(commands.has("wiki-scheduler")).toBe(true);
+      expect(commands.has("wiki-daemon")).toBe(true);
+
+      const { ctx, notifications } = createMockCtx();
+      await commands.get("wiki-scheduler")!.handler("status", ctx);
+      expect(notifications[0].message).toContain("Scheduler: active");
+      expect(notifications[0].message).toContain("Queue:");
+    });
+  });
+
+  describe("registerCommands", () => {
+    it("should register all 12 commands", () => {
+      const { pi, commands } = createMockPi();
+      registerCommands(pi as any, wikiDir, store, () => scope, (s) => { scope = s; });
+
+      expect(commands.size).toBe(12);
       expect(commands.has("wiki")).toBe(true);
       expect(commands.has("wiki-ingest")).toBe(true);
       expect(commands.has("wiki-lint")).toBe(true);
@@ -574,6 +589,8 @@ describe("commands", () => {
       expect(commands.has("wiki-summarize")).toBe(true);
       expect(commands.has("wiki-migrate")).toBe(true);
       expect(commands.has("wiki-project")).toBe(true);
+      expect(commands.has("wiki-scheduler")).toBe(true);
+      expect(commands.has("wiki-daemon")).toBe(true);
     });
   });
 });

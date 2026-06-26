@@ -4,12 +4,11 @@
  * Main extension entry point. Wires together wiki filesystem, qmd store,
  * scope detection, context injection, tools, and commands.
  *
- * Session capture is handled by a separate daemon (pi-para-daemon).
- * This extension registers completed sessions for the daemon to process.
+ * Session capture and maintenance are coordinated by an in-process scheduler.
+ * Completed-session registry entries are kept as a durable catch-up queue.
  */
 
-import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { homedir, networkInterfaces } from "node:os";
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -24,6 +23,15 @@ import { setupContextInjection, markContextDirty } from "./context.js";
 import type { ContextConfig } from "./context.js";
 import { registerCommands } from "./commands.js";
 import { createServer } from "node:http";
+import { startWikiScheduler, stopWikiScheduler } from "./scheduler/index.js";
+import {
+  appendCompletedSession,
+  createCaptureSessionHandler,
+  enqueueCompletedSessionsFromRegistry,
+} from "./scheduler/session-capture.js";
+import { loadParaConfig, toLegacyRuntimeConfig, type ParaUserConfig } from "./config.js";
+import { createModelApiKeyResolver, createPiModelRegistry, getCaptureSelection, resolveSelectedModel } from "./model-resolver.js";
+import { StateDB } from "./state.js";
 
 // Re-export public types for consumers
 export type { ParaCategory, WikiPage, PageFrontmatter, PageRef, LogEntry } from "./wiki.js";
@@ -48,8 +56,8 @@ interface ParaConfig {
   searchLimit: number;
   searchIncludeArchives: boolean;
   searchGraphBoost: boolean;
-  /** Daemon LLM: "provider/model-id" (e.g. "anthropic/claude-sonnet-4").
-   *  If not set, daemon auto-detects from pi env keys or qmd config. */
+  /** Legacy capture LLM: "provider/model-id" (e.g. "anthropic/claude-sonnet-4").
+   *  New config stores this as models.capture; legacy field remains for migration. */
   daemonModel: string | null;
   /** Web wiki UI settings */
   webWiki: {
@@ -108,30 +116,37 @@ function getDefaultConfig(): ParaConfig {
   };
 }
 
-async function loadConfig(): Promise<ParaConfig> {
-  const defaults = getDefaultConfig();
-  const configPath = join(defaults.wikiDir, "config.json");
+interface LoadedRuntimeConfig {
+  runtime: ParaConfig;
+  userConfig: ParaUserConfig | null;
+  secretsPath: string | null;
+}
+
+async function loadConfig(): Promise<LoadedRuntimeConfig> {
   try {
-    const raw = await readFile(configPath, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<ParaConfig>;
-    const wikiDir = parsed.wikiDir
-      ? parsed.wikiDir.replace(/^~\//, `${homedir()}/`)
-      : defaults.wikiDir;
-    return { ...defaults, ...parsed, wikiDir };
+    const loaded = await loadParaConfig({ migrate: true });
+    const runtime = toLegacyRuntimeConfig(loaded.config);
+    return {
+      runtime: {
+        ...runtime,
+        gepa: {
+          ...runtime.gepa,
+          studentModel: runtime.gepa.studentModel ?? null,
+          teacherModel: runtime.gepa.teacherModel ?? null,
+          judgeModel: runtime.gepa.judgeModel ?? null,
+        },
+      },
+      userConfig: loaded.config,
+      secretsPath: loaded.paths.secretsPath,
+    };
   } catch {
-    try {
-      await mkdir(dirname(configPath), { recursive: true });
-      await writeFile(configPath, JSON.stringify(defaults, null, 2), "utf-8");
-    } catch {
-      // Non-fatal
-    }
-    return { ...defaults };
+    return { runtime: getDefaultConfig(), userConfig: null, secretsPath: null };
   }
 }
 
 // -- LAN IP detection --------------------------------------------------------
 
-/** Check if the daemon's web server is alive on the given port. */
+/** Check if the optional web wiki server is alive on the given port. */
 function checkWebServerAlive(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = createServer().listen(port, "127.0.0.1");
@@ -184,7 +199,8 @@ function reconstructState(ctx: ExtensionContext): ParaSessionState | null {
 // -- Extension entry point ---------------------------------------------------
 
 export default async function piPara(pi: ExtensionAPI): Promise<void> {
-  const config = await loadConfig();
+  const loadedConfig = await loadConfig();
+  const config = loadedConfig.runtime;
   const wikiDir = config.wikiDir;
 
   let store: QMDStore | null = null;
@@ -221,7 +237,10 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     if (storeRetrying) return false;
     storeRetrying = true;
     try {
-      store = await openStore(wikiDir);
+      store = await openStore(wikiDir, {
+        paraConfig: loadedConfig.userConfig ?? undefined,
+        secretsPath: loadedConfig.secretsPath ?? undefined,
+      });
       storeDisabled = false;
       markContextDirty(); // rebuild context now that store works
       return true;
@@ -280,7 +299,10 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     ctx.ui.setStatus("pi-para", "wiki: indexing...");
     storeDisabled = false;
     try {
-      store = await openStore(wikiDir);
+      store = await openStore(wikiDir, {
+        paraConfig: loadedConfig.userConfig ?? undefined,
+        secretsPath: loadedConfig.secretsPath ?? undefined,
+      });
     } catch (err) {
       store = null;
       storeDisabled = true;
@@ -302,7 +324,51 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       sessionFile: ctx.sessionManager.getSessionFile() ?? null,
     } satisfies ParaSessionState);
 
-    // Check if daemon's web wiki server is running (don't start our own)
+    const schedulerHandlers = {} as Record<string, any>;
+    try {
+      const loadedParaConfig = await loadParaConfig({ migrate: true });
+      const registry = await createPiModelRegistry();
+      if (registry) {
+        const captureSelection = getCaptureSelection(loadedParaConfig.config);
+        const captureModel = resolveSelectedModel(captureSelection, registry.modelRegistry, {
+          legacyModelSpec: config.daemonModel,
+          preferredModelSpec: "anthropic/claude-sonnet-4-20250514",
+        });
+        if (captureModel) {
+          schedulerHandlers["capture-session"] = createCaptureSessionHandler({
+            wikiDir,
+            storeProvider: () => store,
+            model: captureModel,
+            getApiKey: createModelApiKeyResolver(captureSelection, registry.modelRegistry, {
+              authStorage: registry.authStorage,
+              secretsPath: loadedParaConfig.paths.secretsPath,
+            }),
+          });
+        }
+      }
+    } catch {
+      // Capture handler registration is best-effort; manual capture remains available.
+    }
+
+    const scheduler = startWikiScheduler({
+      wikiDir,
+      enabled: true,
+      intervalMs: 15 * 60_000,
+      storeProvider: () => store,
+      markDirty: () => markContextDirty(),
+      handlers: schedulerHandlers,
+    });
+
+    try {
+      const stateDb = new StateDB(wikiDir);
+      await enqueueCompletedSessionsFromRegistry(scheduler, wikiDir, { stateDb });
+      stateDb.close();
+      void scheduler.tick();
+    } catch {
+      // Startup capture catch-up is best-effort.
+    }
+
+    // Check if web wiki server is running (don't start our own yet)
     if (config.webWiki.enabled) {
       const port = config.webWiki.port;
       try {
@@ -312,7 +378,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
           const url = lanIp ? `http://${lanIp}:${port}` : `http://localhost:${port}`;
           ctx.ui.setStatus("pi-para", `wiki: ${url}`);
         } else {
-          ctx.ui.setStatus("pi-para", "wiki: ready (start daemon for web UI)");
+          ctx.ui.setStatus("pi-para", "wiki: ready (web UI disabled)");
           setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
         }
       } catch {
@@ -337,7 +403,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     markContextDirty();
   });
 
-  // -- session_compact: register session for daemon capture on compaction ----
+  // -- session_compact: register session for scheduler capture on compaction --
 
   pi.on("session_compact", async (_event, ctx) => {
     // Compaction means the session has accumulated enough content that details
@@ -345,9 +411,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (sessionFile) {
       try {
-        const registry = join(wikiDir, ".completed-sessions");
-        const entry = `${new Date().toISOString()}|${sessionFile}\n`;
-        await appendFile(registry, entry);
+        await appendCompletedSession(wikiDir, sessionFile);
         ctx.ui.setStatus("pi-para", "wiki: capture queued (compaction)");
         setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
       } catch {
@@ -356,22 +420,22 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     }
   });
 
-  // -- session_shutdown: register session for daemon, close store ------------
+  // -- session_shutdown: register session for scheduler, close store ---------
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    // 1. Register session as completed (for daemon to process later)
+    // 1. Register session as completed (scheduler catch-up processes later)
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (sessionFile) {
       try {
-        const registry = join(wikiDir, ".completed-sessions");
-        const entry = `${new Date().toISOString()}|${sessionFile}\n`;
-        await appendFile(registry, entry);
+        await appendCompletedSession(wikiDir, sessionFile);
       } catch {
-        // Non-fatal — daemon can also discover sessions via filesystem scan
+        // Non-fatal — startup catch-up can also discover sessions via filesystem scan
       }
     }
 
-    // 2. Close the store (instant)
+    // 2. Stop scheduler and close the store (instant)
+    stopWikiScheduler(wikiDir);
+
     if (store) {
       try {
         await closeStore(store);

@@ -1,4 +1,6 @@
-# pi-para Daemon: Background Knowledge Capture
+# pi-para Daemon: Background Knowledge Capture (Legacy Plan)
+
+> **Deprecated/historical:** pi-para no longer requires a separately managed daemon or `systemd` service. The current architecture uses an in-process scheduler inside the Pi extension, backed by `~/.pi/wiki/.pi-para.sqlite`. See `ARCHITECTURE.md`, `SETUP.md`, and `NO_DAEMON_REFACTOR_ROADMAP.md` for the current design. This file is kept as historical context for the old daemon implementation.
 
 ## Architecture Decisions
 

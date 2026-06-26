@@ -3,10 +3,10 @@
  *
  * Commands: /wiki, /wiki-ingest, /wiki-lint, /wiki-capture,
  *           /wiki-scope, /wiki-search, /wiki-summarize,
- *           /wiki-daemon, /wiki-settings
+ *           /wiki-scheduler, /wiki-daemon compatibility alias, /wiki-settings
  */
 
-import { readFile, appendFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { QMDStore } from "qmd-engine";
@@ -24,6 +24,7 @@ import {
   parseFrontmatter,
   validateFrontmatter,
 } from "./frontmatter.js";
+import { appendCompletedSession } from "./scheduler/session-capture.js";
 
 // -- Helpers -----------------------------------------------------------------
 
@@ -261,7 +262,7 @@ export function registerCommands(
   // ---- /wiki-capture — capture via session LLM ----------------------------
 
   pi.registerCommand("wiki-capture", {
-    description: "Capture knowledge from this session into the wiki (runs in background via daemon)",
+    description: "Queue this session for scheduler-backed wiki capture",
     handler: async (args, ctx) => {
       const sessionFile = ctx.sessionManager.getSessionFile();
       if (!sessionFile) {
@@ -269,16 +270,14 @@ export function registerCommands(
         return;
       }
 
-      // Register the session for daemon capture — runs in background, doesn't block user
+      // Register the session for scheduler capture — runs in background, doesn't block user
       try {
-        const registry = join(wikiDir, ".completed-sessions");
-        const entry = `${new Date().toISOString()}|${sessionFile}\n`;
-        await appendFile(registry, entry);
+        await appendCompletedSession(wikiDir, sessionFile);
 
         ctx.ui.notify(
-          "Session queued for wiki capture (daemon will process in background).\n" +
-          "Check progress: /wiki-daemon status\n" +
-          "Tip: Set \"daemonModel\" in ~/.pi/wiki/config.json for better capture quality.",
+          "Session queued for wiki capture (scheduler will process when Pi is open).\n" +
+          "Check progress: /wiki-scheduler status\n" +
+          "Tip: Set the capture model in /wiki-settings for better capture quality.",
           "info",
         );
         ctx.ui.setStatus("pi-para", "wiki: capture queued");
@@ -386,86 +385,80 @@ export function registerCommands(
     },
   });
 
-  // ---- /wiki-daemon — daemon management ------------------------------------
+  // ---- /wiki-scheduler — scheduler/capture queue status ----------------------
 
-  pi.registerCommand("wiki-daemon", {
-    description: "Check daemon status and capture history",
-    getArgumentCompletions: (prefix) => {
-      const cmds = ["status", "history"];
-      const filtered = cmds.filter((c) => c.startsWith(prefix));
-      return filtered.length > 0 ? filtered.map((c) => ({ value: c, label: c })) : null;
-    },
-    handler: async (args, ctx) => {
-      const subcmd = args.trim().split(/\s+/)[0] || "status";
+  const registerSchedulerStatusCommand = (name: "wiki-scheduler" | "wiki-daemon", legacy: boolean) => {
+    pi.registerCommand(name, {
+      description: legacy
+        ? "Compatibility alias for /wiki-scheduler"
+        : "Check scheduler queue, task history, and capture status",
+      getArgumentCompletions: (prefix) => {
+        const cmds = ["status", "queue", "history", "capture-history"];
+        const filtered = cmds.filter((c) => c.startsWith(prefix));
+        return filtered.length > 0 ? filtered.map((c) => ({ value: c, label: c })) : null;
+      },
+      handler: async (args, ctx) => {
+        const subcmd = args.trim().split(/\s+/)[0] || "status";
+        const { listSchedulerTasks, listSchedulerHistory, formatQueueItems, formatSchedulerHistory } = await import("./scheduler/controls.js");
+        const { StateDB } = await import("./state.js");
 
-      // Read state directly from the state DB — fast, no subprocess needed
-      const { StateDB } = await import("./state.js");
-      const state = new StateDB(wikiDir);
-
-      try {
         switch (subcmd) {
           case "status": {
-            const pid = state.getState("daemon_pid");
-            const startedAt = state.getState("daemon_started_at");
-            const history = state.getHistory(undefined, 5);
-            const failed = state.getFailed();
-
-            let running = false;
-            if (pid) {
-              try { process.kill(parseInt(pid), 0); running = true; } catch {}
-            }
-
+            const queued = listSchedulerTasks(wikiDir, { status: "queued" }).length;
+            const running = listSchedulerTasks(wikiDir, { status: "running" }).length;
+            const failed = listSchedulerTasks(wikiDir, { status: "failed" }).length;
+            const recent = listSchedulerHistory(wikiDir, { limit: 5 });
             const lines = [
-              `Daemon: ${running ? `running (PID ${pid})` : "not running"}`,
-              startedAt ? `Started: ${startedAt}` : "",
-              `Failed: ${failed.length}`,
+              legacy ? "Scheduler: active (via /wiki-daemon compatibility alias)" : "Scheduler: active",
+              `Queue: ${queued} queued, ${running} running, ${failed} failed`,
               "",
-              "Recent captures:",
+              "Recent scheduler history:",
+              formatSchedulerHistory(recent).split("\n").map((line) => `  ${line}`).join("\n"),
             ];
-            if (history.length === 0) {
-              lines.push("  (none)");
-            } else {
-              for (const h of history) {
-                const status = h.error
-                  ? `ERROR: ${h.error.slice(0, 50)}`
-                  : h.pagesCreated.length > 0
-                    ? `${h.pagesCreated.length} page(s)`
-                    : "skipped";
-                lines.push(`  ${h.processedAt.slice(0, 19)} | ${h.scope} | ${status}`);
-              }
-            }
             ctx.ui.notify(lines.filter(Boolean).join("\n"), "info");
             break;
           }
+          case "queue": {
+            ctx.ui.notify(formatQueueItems(listSchedulerTasks(wikiDir)), "info");
+            break;
+          }
           case "history": {
+            ctx.ui.notify(formatSchedulerHistory(listSchedulerHistory(wikiDir, { limit: 15 })), "info");
+            break;
+          }
+          case "capture-history": {
             const scope = getScope();
-            const history = state.getHistory(scope.name, 15);
-
-            if (history.length === 0) {
-              ctx.ui.notify(`No capture history for scope: ${scope.name}`, "info");
-              break;
+            const state = new StateDB(wikiDir);
+            try {
+              const history = state.getHistory(scope.name, 15);
+              if (history.length === 0) {
+                ctx.ui.notify(`No capture history for scope: ${scope.name}`, "info");
+                break;
+              }
+              const lines = [`Capture history (${scope.name}):\n`];
+              for (const h of history) {
+                const status = h.error
+                  ? `ERROR: ${h.error.slice(0, 60)}`
+                  : h.pagesCreated.length > 0
+                    ? `${h.pagesCreated.length} page(s): ${h.pagesCreated.join(", ")}`
+                    : "skipped";
+                lines.push(`${h.processedAt.slice(0, 19)} | ${status}`);
+              }
+              ctx.ui.notify(lines.join("\n"), "info");
+            } finally {
+              state.close();
             }
-
-            const lines = [`Capture history (${scope.name}):\n`];
-            for (const h of history) {
-              const status = h.error
-                ? `ERROR: ${h.error.slice(0, 60)}`
-                : h.pagesCreated.length > 0
-                  ? `${h.pagesCreated.length} page(s): ${h.pagesCreated.join(", ")}`
-                  : "skipped";
-              lines.push(`${h.processedAt.slice(0, 19)} | ${status}`);
-            }
-            ctx.ui.notify(lines.join("\n"), "info");
             break;
           }
           default:
-            ctx.ui.notify(`Usage: /wiki-daemon [status|history]`, "error");
+            ctx.ui.notify(`Usage: /${name} [status|queue|history|capture-history]`, "error");
         }
-      } finally {
-        state.close();
-      }
-    },
-  });
+      },
+    });
+  };
+
+  registerSchedulerStatusCommand("wiki-scheduler", false);
+  registerSchedulerStatusCommand("wiki-daemon", true);
 
   // ---- /wiki-migrate — batch schema migration ------------------------------
 
@@ -640,239 +633,206 @@ ${goal} — verified and complete.
         return;
       }
 
-      const { writeFile: writeFileAsync } = await import("node:fs/promises");
-      const { parse, stringify } = await import("yaml");
-      const { homedir } = await import("node:os");
-      const { execSync } = await import("node:child_process");
+      const { loadParaConfig, saveParaConfig } = await import("./config.js");
+      const {
+        modelSelectionLabel,
+        providerProfileLabel,
+        setContextMaxTokens,
+        setSearchLimit,
+        setLintStaleDays,
+        toggleSearchGraphBoost,
+        toggleLintAutoFix,
+        setCaptureModelAuto,
+        setCaptureModel,
+        setWebWikiEnabled,
+        setWebWikiHost,
+        setWebWikiPort,
+        ensureEmbeddingProfile,
+        ensureRerankProfile,
+        disableRerank,
+        setProviderProfileField,
+        setProviderDims,
+      } = await import("./settings.js");
+      const { listSchedulerTasks } = await import("./scheduler/controls.js");
+      const { setSecret } = await import("./credentials.js");
 
-      // Load current config
-      const configPath = join(wikiDir, "config.json");
-      let config: Record<string, unknown> = {};
-      try {
-        config = JSON.parse(await readFile(configPath, "utf-8"));
-      } catch { /* defaults */ }
+      const loaded = await loadParaConfig({ migrate: true });
+      const config = loaded.config;
+      const persist = async () => saveParaConfig(config, { homeDir: loaded.paths.homeDir });
 
-      // Load qmd config
-      const qmdPath = join(homedir(), ".config", "qmd", "index.yml");
-      let qmdConfig: Record<string, unknown> = {};
-      try {
-        qmdConfig = parse(await readFile(qmdPath, "utf-8")) ?? {};
-      } catch { /* no qmd config */ }
-      const providers = (qmdConfig.providers ?? {}) as Record<string, Record<string, string>>;
-
-      // Check statuses
-      let qmdVersion = "";
-      try { qmdVersion = execSync("qmd --version 2>/dev/null", { encoding: "utf-8" }).trim(); } catch {}
-      let daemonStatus = "not running";
-      try { daemonStatus = execSync("systemctl --user is-active pi-para-daemon 2>/dev/null", { encoding: "utf-8" }).trim(); } catch {}
-
-      // Main menu loop
       while (true) {
         const scope = getScope();
         const pageCount = (await listPages(wikiDir).catch(() => [])).length;
+        const queuedTasks = listSchedulerTasks(wikiDir, { status: "queued" }).length;
+        const failedTasks = listSchedulerTasks(wikiDir, { status: "failed" }).length;
 
         const choice = await ctx.ui.select("Wiki Settings", [
-          `[Context] Max tokens: ${config.contextMaxTokens ?? 4000}`,
-          `[Search]  Limit: ${config.searchLimit ?? 10}, Graph boost: ${config.searchGraphBoost ?? true}`,
-          `[Lint]    Auto-fix: ${config.lintAutoFix ?? true}, Stale days: ${config.lintStaleDays ?? 90}`,
-          `[Daemon]  Model: ${config.daemonModel ?? "auto"}`,
-          `[WebWiki] ${(config as any).webWiki?.enabled ? `Enabled at http://${(config as any).webWiki?.host ?? "0.0.0.0"}:${(config as any).webWiki?.port ?? 10973}` : "Disabled"}`,
-          `[Embed]   ${providers.embed?.model ?? "not configured"} ${providers.embed?.url ? "at " + providers.embed.url : ""}`,
-          `[Chat]    ${providers.chat?.model ?? "not configured"} ${providers.chat?.url ? "at " + providers.chat.url : ""}`,
-          `[Rerank]  ${providers.rerank?.model ?? "not configured"} ${providers.rerank?.url ? "at " + providers.rerank.url : ""}`,
+          `[Context] Max tokens: ${config.context.maxTokens}`,
+          `[Search]  Limit: ${config.context.searchLimit}, Graph boost: ${config.context.searchGraphBoost}`,
+          `[Lint]    Auto-fix: ${config.lint.autoFix}, Stale days: ${config.lint.staleDays}`,
+          `[Capture] Model: ${modelSelectionLabel(config.models.capture)}`,
+          `[WebWiki] ${config.webWiki.enabled ? `Enabled at http://${config.webWiki.host}:${config.webWiki.port}` : "Disabled"}`,
+          `[Embedding] ${providerProfileLabel(config.qmd.embedding)}`,
+          `[Rerank]  ${providerProfileLabel(config.qmd.rerank)}`,
           `---`,
-          `[Status]  Scope: ${scope.name} | Pages: ${pageCount} | qmd: ${qmdVersion || "not installed"} | Daemon: ${daemonStatus}`,
+          `[Status]  Scope: ${scope.name} | Pages: ${pageCount} | qmd: SDK | Scheduler: ${queuedTasks} queued, ${failedTasks} failed`,
         ]);
 
         if (!choice) break;
 
         if (choice.startsWith("[Context]")) {
-          const val = await ctx.ui.input("Context max tokens:", String(config.contextMaxTokens ?? 4000));
+          const val = await ctx.ui.input("Context max tokens:", String(config.context.maxTokens));
           if (val) {
-            config.contextMaxTokens = parseInt(val) || 4000;
-            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-            ctx.ui.notify(`Set contextMaxTokens = ${config.contextMaxTokens}`, "info");
+            setContextMaxTokens(config, val);
+            await persist();
+            ctx.ui.notify(`Set context.maxTokens = ${config.context.maxTokens}`, "info");
           }
         } else if (choice.startsWith("[Search]")) {
           const sub = await ctx.ui.select("Search Settings", [
-            `Limit: ${config.searchLimit ?? 10}`,
-            `Graph boost: ${config.searchGraphBoost ?? true}`,
+            `Limit: ${config.context.searchLimit}`,
+            `Graph boost: ${config.context.searchGraphBoost}`,
           ]);
           if (sub?.startsWith("Limit")) {
-            const val = await ctx.ui.input("Search result limit:", String(config.searchLimit ?? 10));
+            const val = await ctx.ui.input("Search result limit:", String(config.context.searchLimit));
             if (val) {
-              config.searchLimit = parseInt(val) || 10;
-              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-              ctx.ui.notify(`Set searchLimit = ${config.searchLimit}`, "info");
+              setSearchLimit(config, val);
+              await persist();
+              ctx.ui.notify(`Set context.searchLimit = ${config.context.searchLimit}`, "info");
             }
           } else if (sub?.startsWith("Graph boost")) {
-            config.searchGraphBoost = !(config.searchGraphBoost ?? true);
-            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-            ctx.ui.notify(`Set searchGraphBoost = ${config.searchGraphBoost}`, "info");
+            toggleSearchGraphBoost(config);
+            await persist();
+            ctx.ui.notify(`Set context.searchGraphBoost = ${config.context.searchGraphBoost}`, "info");
           }
         } else if (choice.startsWith("[Lint]")) {
           const sub = await ctx.ui.select("Lint Settings", [
-            `Auto-fix: ${config.lintAutoFix ?? true}`,
-            `Stale days: ${config.lintStaleDays ?? 90}`,
+            `Auto-fix: ${config.lint.autoFix}`,
+            `Stale days: ${config.lint.staleDays}`,
           ]);
           if (sub?.startsWith("Auto-fix")) {
-            config.lintAutoFix = !(config.lintAutoFix ?? true);
-            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-            ctx.ui.notify(`Set lintAutoFix = ${config.lintAutoFix}`, "info");
+            toggleLintAutoFix(config);
+            await persist();
+            ctx.ui.notify(`Set lint.autoFix = ${config.lint.autoFix}`, "info");
           } else if (sub?.startsWith("Stale")) {
-            const val = await ctx.ui.input("Stale days threshold:", String(config.lintStaleDays ?? 90));
+            const val = await ctx.ui.input("Stale days threshold:", String(config.lint.staleDays));
             if (val) {
-              config.lintStaleDays = parseInt(val) || 90;
-              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-              ctx.ui.notify(`Set lintStaleDays = ${config.lintStaleDays}`, "info");
+              setLintStaleDays(config, val);
+              await persist();
+              ctx.ui.notify(`Set lint.staleDays = ${config.lint.staleDays}`, "info");
             }
           }
-        } else if (choice.startsWith("[Daemon]")) {
+        } else if (choice.startsWith("[Capture]")) {
           try {
             const { getProviders, getModels } = await import("@mariozechner/pi-ai");
             const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
             const authStorage = AuthStorage.create();
-
-            // Find providers that have auth configured
-            const allProviders = getProviders();
-            const availableProviders: string[] = [];
-            for (const p of allProviders) {
-              if (authStorage.hasAuth(p)) availableProviders.push(p);
-            }
+            const availableProviders = getProviders().filter((p: string) => authStorage.hasAuth(p));
 
             if (availableProviders.length === 0) {
-              ctx.ui.notify("No providers configured. Log in with pi first.", "warning");
+              ctx.ui.notify("No Pi auth providers configured. Use /login first or configure a pi-para secret for custom providers.", "warning");
             } else {
-              // Let user pick provider
-              const providerChoice = await ctx.ui.select(
-                "Select provider",
-                ["auto (best available)", ...availableProviders],
-              );
-
+              const providerChoice = await ctx.ui.select("Select capture provider", ["auto (best available)", ...availableProviders]);
               if (providerChoice === "auto (best available)") {
-                config.daemonModel = null;
-                await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-                try { execSync("systemctl --user restart pi-para-daemon 2>/dev/null"); } catch {}
-                ctx.ui.notify("Set daemonModel = auto (daemon restarted)", "info");
+                setCaptureModelAuto(config);
+                await persist();
+                ctx.ui.notify("Set capture model = auto. Restart open Pi sessions to apply.", "info");
               } else if (providerChoice) {
-                // Show models for selected provider
                 const models = getModels(providerChoice as any)
                   .sort((a: any, b: any) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
-                const modelOptions = models.map((m: any) =>
-                  `${m.id} (${Math.round((m.contextWindow ?? 0) / 1000)}k ctx${m.reasoning ? ", reasoning" : ""})`
-                );
                 const modelChoice = await ctx.ui.select(
                   `Select ${providerChoice} model`,
-                  modelOptions,
+                  models.map((m: any) => `${m.id} (${Math.round((m.contextWindow ?? 0) / 1000)}k ctx${m.reasoning ? ", reasoning" : ""})`),
                 );
                 if (modelChoice) {
-                  const modelId = modelChoice.split(" (")[0];
-                  config.daemonModel = `${providerChoice}/${modelId}`;
-                  await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-                  try { execSync("systemctl --user restart pi-para-daemon 2>/dev/null"); } catch {}
-                  ctx.ui.notify(`Set daemonModel = ${config.daemonModel} (daemon restarted)`, "info");
+                  setCaptureModel(config, providerChoice, modelChoice.split(" (")[0]);
+                  await persist();
+                  ctx.ui.notify(`Set capture model = ${modelSelectionLabel(config.models.capture)}. Restart open Pi sessions to apply.`, "info");
                 }
               }
             }
-          } catch (err) {
-            // Fallback to manual input if AuthStorage not available
-            const val = await ctx.ui.input(
-              "Daemon model (provider/model-id, or empty for auto):",
-              config.daemonModel ? String(config.daemonModel) : "",
-            );
-            config.daemonModel = val?.trim() || null;
-            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-            try { const { execSync: exec } = await import("node:child_process"); exec("systemctl --user restart pi-para-daemon 2>/dev/null"); } catch {}
-            ctx.ui.notify(`Set daemonModel = ${config.daemonModel ?? "auto"} (daemon restarted)`, "info");
+          } catch {
+            const val = await ctx.ui.input("Capture model (provider/model-id, empty for auto):", modelSelectionLabel(config.models.capture));
+            if (!val?.trim()) setCaptureModelAuto(config);
+            else {
+              const slash = val.indexOf("/");
+              if (slash <= 0) {
+                ctx.ui.notify("Use provider/model-id format, or leave empty for auto.", "error");
+                continue;
+              }
+              setCaptureModel(config, val.slice(0, slash), val.slice(slash + 1));
+            }
+            await persist();
+            ctx.ui.notify(`Set capture model = ${modelSelectionLabel(config.models.capture)}. Restart open Pi sessions to apply.`, "info");
           }
         } else if (choice.startsWith("[WebWiki]")) {
-          const webWiki = (config as any).webWiki ?? { enabled: false, host: "0.0.0.0", port: 10973 };
           const sub = await ctx.ui.select("Web Wiki Settings", [
-            `Enabled: ${webWiki.enabled}`,
-            `Host: ${webWiki.host}`,
-            `Port: ${webWiki.port}`,
+            `Enabled: ${config.webWiki.enabled}`,
+            `Host: ${config.webWiki.host}`,
+            `Port: ${config.webWiki.port}`,
           ]);
           if (sub?.startsWith("Enabled")) {
-            webWiki.enabled = !webWiki.enabled;
-            (config as any).webWiki = webWiki;
-            await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-            if (webWiki.enabled) {
-              // Detect LAN IP
-              const { networkInterfaces } = await import("node:os");
-              const nets = networkInterfaces();
-              let lanIp = webWiki.host;
-              for (const ifaces of Object.values(nets)) {
-                for (const iface of ifaces ?? []) {
-                  if (iface.family === "IPv4" && !iface.internal) {
-                    lanIp = iface.address;
-                    break;
-                  }
-                }
-              }
-              ctx.ui.notify(`Web Wiki enabled at http://${lanIp}:${webWiki.port}\nRestart pi to apply.`, "info");
-            } else {
-              ctx.ui.notify("Web Wiki disabled. Restart pi to apply.", "info");
-            }
+            setWebWikiEnabled(config, !config.webWiki.enabled);
+            await persist();
+            ctx.ui.notify(`Web Wiki ${config.webWiki.enabled ? "enabled" : "disabled"}. Restart open Pi sessions to apply.`, "info");
           } else if (sub?.startsWith("Host")) {
-            const val = await ctx.ui.input("Host (0.0.0.0 for LAN, 127.0.0.1 for local only):", webWiki.host);
-            if (val) {
-              webWiki.host = val;
-              (config as any).webWiki = webWiki;
-              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-              ctx.ui.notify(`Set webWiki.host = ${webWiki.host}`, "info");
-            }
+            const val = await ctx.ui.input("Host:", config.webWiki.host);
+            if (val) { setWebWikiHost(config, val); await persist(); }
           } else if (sub?.startsWith("Port")) {
-            const val = await ctx.ui.input("Port:", String(webWiki.port));
-            if (val) {
-              webWiki.port = parseInt(val) || 10973;
-              (config as any).webWiki = webWiki;
-              await writeFileAsync(configPath, JSON.stringify(config, null, 2));
-              ctx.ui.notify(`Set webWiki.port = ${webWiki.port}`, "info");
-            }
+            const val = await ctx.ui.input("Port:", String(config.webWiki.port));
+            if (val) { setWebWikiPort(config, val); await persist(); }
           }
-        } else if (choice.startsWith("[Embed]") || choice.startsWith("[Chat]") || choice.startsWith("[Rerank]")) {
-          const providerType = choice.startsWith("[Embed]") ? "embed" : choice.startsWith("[Chat]") ? "chat" : "rerank";
-          const current = providers[providerType] ?? {};
-
-          const sub = await ctx.ui.select(`${providerType} provider`, [
-            `URL: ${current.url ?? "not set"}`,
-            `Key: ${current.key ? current.key.slice(0, 8) + "..." : "not set"}`,
-            `Model: ${current.model ?? "not set"}`,
-            ...(providerType === "embed" ? [`Dims: ${current.dims ?? "auto"}`] : []),
-            ...(providerType === "chat" ? [`API format: ${current.api ?? "openai"}`] : []),
-            `Remove this provider`,
+        } else if (choice.startsWith("[Embedding]") || choice.startsWith("[Rerank]")) {
+          const isEmbedding = choice.startsWith("[Embedding]");
+          const profile = isEmbedding ? ensureEmbeddingProfile(config) : ensureRerankProfile(config);
+          const sub = await ctx.ui.select(isEmbedding ? "Embedding provider" : "Rerank provider", [
+            `Provider: ${profile.provider}`,
+            `Base URL: ${profile.baseUrl ?? "not set"}`,
+            `Model: ${profile.model ?? "not set"}`,
+            ...(isEmbedding ? [`Dims: ${profile.dims ?? "auto"}`] : []),
+            `API format: ${profile.apiFormat ?? "openai"}`,
+            `Credential ref: ${profile.credentialRef}`,
+            `Store/update local secret`,
+            ...(!isEmbedding ? [`Disable rerank`] : []),
           ]);
 
-          if (sub?.startsWith("URL")) {
-            const val = await ctx.ui.input(`${providerType} URL:`, current.url ?? "");
-            if (val) { current.url = val; providers[providerType] = current; }
-          } else if (sub?.startsWith("Key")) {
-            const val = await ctx.ui.input(`${providerType} API key:`, "");
-            if (val) { current.key = val; providers[providerType] = current; }
+          if (sub?.startsWith("Provider")) {
+            const val = await ctx.ui.input("Provider id:", profile.provider);
+            if (val) setProviderProfileField(profile, "provider", val);
+          } else if (sub?.startsWith("Base URL")) {
+            const val = await ctx.ui.input("Base URL:", profile.baseUrl ?? "");
+            if (val) setProviderProfileField(profile, "baseUrl", val);
           } else if (sub?.startsWith("Model")) {
-            const val = await ctx.ui.input(`${providerType} model:`, current.model ?? "");
-            if (val) { current.model = val; providers[providerType] = current; }
+            const val = await ctx.ui.input("Model id:", profile.model ?? "");
+            if (val) setProviderProfileField(profile, "model", val);
           } else if (sub?.startsWith("Dims")) {
-            const val = await ctx.ui.input("Embedding dimensions:", current.dims ?? "");
-            if (val) { current.dims = val; providers[providerType] = current; }
+            const val = await ctx.ui.input("Embedding dimensions:", profile.dims ? String(profile.dims) : "");
+            if (val) setProviderDims(profile, val);
           } else if (sub?.startsWith("API format")) {
-            const fmt = await ctx.ui.select("API format", ["openai", "anthropic"]);
-            if (fmt) { current.api = fmt; providers[providerType] = current; }
-          } else if (sub?.startsWith("Remove")) {
-            delete providers[providerType];
+            const fmt = await ctx.ui.select("API format", ["openai", "anthropic", "custom"]);
+            if (fmt) setProviderProfileField(profile, "apiFormat", fmt);
+          } else if (sub?.startsWith("Credential ref")) {
+            const val = await ctx.ui.input("Credential ref (pi-auth:<provider>, secret:<name>, or none):", profile.credentialRef);
+            if (val) setProviderProfileField(profile, "credentialRef", val);
+          } else if (sub?.startsWith("Store/update local secret")) {
+            const name = await ctx.ui.input("Secret name:", profile.credentialRef.startsWith("secret:") ? profile.credentialRef.slice("secret:".length) : "");
+            if (name) {
+              const value = await ctx.ui.input("API key (stored in ~/.pi/para/secrets.json, not wiki git):", "");
+              if (value) {
+                await setSecret(name, value, loaded.paths.secretsPath);
+                setProviderProfileField(profile, "credentialRef", `secret:${name}`);
+              }
+            }
+          } else if (sub?.startsWith("Disable rerank")) {
+            disableRerank(config);
           }
 
-          // Save qmd config
-          qmdConfig.providers = providers;
-          const { mkdirSync } = await import("node:fs");
-          mkdirSync(join(homedir(), ".config", "qmd"), { recursive: true });
-          await writeFileAsync(qmdPath, stringify(qmdConfig));
-          ctx.ui.notify(`Updated ${qmdPath}`, "info");
+          await persist();
+          ctx.ui.notify(`Updated ${isEmbedding ? "embedding" : "rerank"} provider config.`, "info");
         } else if (choice.startsWith("---") || choice.startsWith("[Status]")) {
-          // Status row — just show, don't edit
           continue;
         }
       }
     },
   });
+
 }

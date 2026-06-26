@@ -208,13 +208,13 @@ export async function buildContext(
   // Reminder to use wiki tools proactively — this is injected into every turn
   // so the LLM doesn't forget between tool calls.
   parts.push(
-    "After making significant architectural decisions, solving debugging problems, establishing project conventions, or completing substantial implementation work, use wiki_write to persist the knowledge without being asked."
+    "Persist major decisions/debugging/conventions with wiki_write without being asked."
   );
   parts.push(
-    "When using wiki_write: use resources/ category for almost everything (architecture docs, debugging, patterns). scope must be a kebab-case project name. tags must be kebab-case, no spaces. Always add [[wikilinks]] in a ## Connections section. NEVER include API keys, tokens, or secrets — document WHERE they are stored, not the values. Use wiki_edit for surgical updates to existing pages; wiki_write mode=create will not overwrite existing pages."
+    "wiki_write: prefer resources/, kebab-case scope/tags, add [[wikilinks]], never store secrets. Use wiki_edit for surgical existing-page updates; mode=create will not overwrite."
   );
   parts.push(
-    "Wiki pages may be stale. When wiki_query or wiki_read returns a page with an AGING/STALE/VERY STALE freshness indicator, verify its claims against actual code or configs before trusting it. If you find incorrect information, fix it immediately with wiki_edit. This self-healing loop keeps the wiki accurate."
+    "Stale wiki claims about code/configs/APIs must be verified against source; fix wrong pages with wiki_edit."
   );
 
   return header + "\n" + parts.join("\n\n") + "\n" + footer;

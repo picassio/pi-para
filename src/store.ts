@@ -12,6 +12,8 @@ import { parse as parseYaml } from "yaml";
 import { createStore, extractSnippet } from "qmd-engine";
 import type { QMDStore, CollectionConfig } from "qmd-engine";
 import { parseFrontmatter } from "./frontmatter.js";
+import type { ParaUserConfig } from "./config.js";
+import { buildQmdProvidersFromParaConfig } from "./qmd-providers.js";
 import { matchesScope } from "./scope.js";
 import type { PageFrontmatter, PageRef, ParaCategory } from "./wiki.js";
 import type { ProjectScope } from "./scope.js";
@@ -20,6 +22,12 @@ import type { ProjectScope } from "./scope.js";
 export type { QMDStore } from "qmd-engine";
 
 // -- Types ------------------------------------------------------------------
+
+export interface OpenStoreOptions {
+  paraConfig?: ParaUserConfig;
+  secretsPath?: string;
+  authStorage?: { getApiKey(provider: string): Promise<string | undefined> };
+}
 
 export interface WikiSearchOptions {
   scope?: ProjectScope;
@@ -82,10 +90,17 @@ function loadQmdProviders(): Record<string, unknown> | undefined {
  * Adds PARA category contexts, runs update() for BM25,
  * and schedules embed() in the background.
  */
-export async function openStore(wikiDir: string): Promise<QMDStore> {
-  // Read providers from ~/.config/qmd/index.yml so external API providers
-  // (embed, chat, rerank) are used instead of local GGUF models.
-  const providers = loadQmdProviders();
+export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): Promise<QMDStore> {
+  // Prefer pi-para's in-memory provider profiles. Legacy QMD YAML remains a
+  // fallback for migrated installs and tests that do not pass paraConfig.
+  const providers = opts.paraConfig
+    ? opts.paraConfig.qmd.providerConfig === "legacy-qmd-compatible"
+      ? loadQmdProviders()
+      : await buildQmdProvidersFromParaConfig(opts.paraConfig, {
+        secretsPath: opts.secretsPath,
+        authStorage: opts.authStorage,
+      })
+    : loadQmdProviders();
 
   const store = await createStore({
     dbPath: join(wikiDir, ".qmd.sqlite"),
@@ -117,25 +132,27 @@ export async function openStore(wikiDir: string): Promise<QMDStore> {
   // Sync filesystem -> BM25 index (fast, search ready immediately)
   await store.update();
 
-  // Schedule embedding in background (non-blocking).
-  // BM25 search works immediately; hybrid search improves once embed completes.
-  // Suppress console.error from qmd's internal embed failures.
-  const origError = console.error;
-  const embedPromise = store.embed().then(() => {
-    pendingEmbeds.delete(store);
-  }).catch(() => {
-    // Embedding failures are non-fatal — hybrid search degrades to BM25
-    pendingEmbeds.delete(store);
-  }).finally(() => {
-    console.error = origError;
-  });
-  // Temporarily suppress embed error noise during background embed
-  console.error = (...args: unknown[]) => {
-    const msg = String(args[0] ?? "");
-    if (msg.includes("embed error") || msg.includes("fetch failed")) return;
-    origError(...args);
-  };
-  pendingEmbeds.set(store, embedPromise);
+  if (opts.paraConfig?.qmd.embedEnabled !== false) {
+    // Schedule embedding in background (non-blocking).
+    // BM25 search works immediately; hybrid search improves once embed completes.
+    // Suppress console.error from qmd's internal embed failures.
+    const origError = console.error;
+    const embedPromise = store.embed().then(() => {
+      pendingEmbeds.delete(store);
+    }).catch(() => {
+      // Embedding failures are non-fatal — hybrid search degrades to BM25
+      pendingEmbeds.delete(store);
+    }).finally(() => {
+      console.error = origError;
+    });
+    // Temporarily suppress embed error noise during background embed
+    console.error = (...args: unknown[]) => {
+      const msg = String(args[0] ?? "");
+      if (msg.includes("embed error") || msg.includes("fetch failed")) return;
+      origError(...args);
+    };
+    pendingEmbeds.set(store, embedPromise);
+  }
 
   return store;
 }

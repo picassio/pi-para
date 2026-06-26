@@ -1,171 +1,255 @@
-# pi-para Setup Instructions
+# pi-para Setup
 
-> This file is designed to be read by pi (the AI agent). Ask pi: "read SETUP.md and set up pi-para"
+This is the current setup flow for pi-para. It is cross-platform and does not require `systemd`, a long-running daemon, or a global QMD CLI.
 
 ## Prerequisites
 
-- pi (coding agent) installed and working
-- Node.js available (`node --version`)
-- Internet access for npm
+- Pi installed and working.
+- Node.js/npm available.
+- A restarted Pi session after install/config changes.
 
-## Step 1: Install the extension
-
-```bash
-pi install @picassio/pi-para
-```
-
-Verify it loaded — restart pi and check extensions list. You should see `pi-para` in the `[Extensions]` section.
-
-## Step 2: Install qmd search engine (recommended)
-
-qmd provides hybrid search (BM25 + vector + rerank). Without it, wiki search uses BM25 keyword matching only.
+## Standard install
 
 ```bash
-npm install -g @picassio/qmd
+pi install pi-para
 ```
 
-Verify: `qmd --version` should print a version number.
+Then restart Pi.
 
-## Step 3: Configure search providers
-
-Create `~/.config/qmd/index.yml` with your API providers. Choose based on what keys you have:
-
-### Option A: OpenRouter (embedding) + MiniMax CN (chat)
-
-```yaml
-providers:
-  embed:
-    url: https://openrouter.ai/api/v1
-    key: YOUR_OPENROUTER_KEY
-    model: openai/text-embedding-3-small
-    dims: 768
-  chat:
-    url: https://api.minimaxi.com/anthropic
-    key: YOUR_MINIMAX_CN_KEY
-    model: MiniMax-M2.7-highspeed
-    api: anthropic
-```
-
-### Option B: OpenAI only
-
-```yaml
-providers:
-  embed:
-    url: https://api.openai.com/v1
-    key: YOUR_OPENAI_KEY
-    model: text-embedding-3-small
-    dims: 1536
-  chat:
-    url: https://api.openai.com/v1
-    key: YOUR_OPENAI_KEY
-    model: gpt-4o-mini
-```
-
-### Option C: No providers (BM25 only)
-
-Skip this step. Wiki search works with keyword matching. No API keys needed.
-
-## Step 4: Configure daemon LLM (optional)
-
-Edit `~/.pi/wiki/config.json` (created after first pi session) and set `daemonModel`:
-
-```json
-{
-  "daemonModel": "anthropic/claude-sonnet-4"
-}
-```
-
-If null, the daemon auto-detects from:
-1. Pi's API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-2. qmd chat provider from Step 3
-
-## Step 5: Start the background capture daemon
-
-### Linux (systemd — recommended)
-
-Run the setup script from the pi-para install directory:
+Run diagnostics:
 
 ```bash
-# Find the install path
-PARA_DIR="$(npm root -g)/@picassio/pi-para"
-# Or if installed via pi:
-# PARA_DIR="$HOME/.pi/agent/packages/npm/@picassio/pi-para"
-
-cd "$PARA_DIR"
-
-# Install tsx if not present
-npm install tsx 2>/dev/null
-
-# Create systemd user service
-mkdir -p ~/.config/systemd/user
-NODE_BIN="$(dirname "$(which node)")"
-
-cat > ~/.config/systemd/user/pi-para-daemon.service << EOF
-[Unit]
-Description=pi-para knowledge capture daemon
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=$PARA_DIR
-ExecStart=$PARA_DIR/node_modules/.bin/tsx src/cli.ts start
-Restart=on-failure
-RestartSec=10
-Environment=HOME=$HOME
-Environment=PATH=$NODE_BIN:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
-
-[Install]
-WantedBy=default.target
-EOF
-
-# Enable, start, and survive SSH logout
-systemctl --user daemon-reload
-systemctl --user enable pi-para-daemon
-systemctl --user start pi-para-daemon
-sudo loginctl enable-linger $USER
+pi-para doctor
 ```
 
-Verify: `systemctl --user status pi-para-daemon`
-
-### macOS / Manual
+If needed, apply safe repairs:
 
 ```bash
-cd "$PARA_DIR" && npx tsx src/cli.ts start
+pi-para doctor --fix
 ```
 
-Keep the terminal open, or use a process manager like pm2.
+## npx setup flow
 
-## Step 6: Verify everything works
+For a fresh machine or scripted install:
 
-In pi, run these commands:
+```bash
+npx pi-para@latest setup
+```
 
-1. `/wiki-settings` — should show config, search engine status, providers, daemon status
-2. `/wiki` — should show "Pages: 0 total" (empty wiki)
-3. Say: "save to wiki: this is a test page" — should create a page
-4. `/wiki` — should show "Pages: 1 total"
-5. Say: "search the wiki for test" — should find the test page
+POSIX one-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/picassio/pi-para/main/scripts/install.sh | bash
+```
+
+Windows PowerShell one-liner:
+
+```powershell
+irm https://raw.githubusercontent.com/picassio/pi-para/main/scripts/install.ps1 | iex
+```
+
+Non-interactive defaults:
+
+```bash
+npx pi-para@latest setup --yes
+```
+
+Dry run:
+
+```bash
+npx pi-para@latest setup --dry-run
+```
+
+Local development install:
+
+```bash
+cd /path/to/pi-para
+npm install
+npm run build
+node ./dist/cli.js setup --local .
+```
+
+Restart Pi after setup.
+
+## What setup does
+
+`pi-para setup` is idempotent. It may:
+
+1. locate Pi settings,
+2. register the pi-para extension,
+3. initialize `~/.pi/wiki/`,
+4. create or migrate `~/.pi/para/config.jsonc`,
+5. repair generated-state `.gitignore` entries,
+6. validate the embedded QMD SDK,
+7. print next steps.
+
+It does **not** install a system daemon by default, does **not** require global `qmd`, and does **not** copy secrets unless you explicitly store one.
+
+## Configuration locations
+
+Canonical:
+
+```text
+~/.pi/para/config.jsonc
+~/.pi/para/secrets.json
+~/.pi/wiki/
+~/.pi/wiki/.pi-para.sqlite
+~/.pi/wiki/.qmd.sqlite
+```
+
+Legacy migration inputs:
+
+```text
+~/.pi/wiki/config.json
+~/.pi/wiki/.daemon.sqlite
+~/.config/qmd/index.yml
+```
+
+## Provider credentials
+
+Credential refs use:
+
+```text
+pi-auth:<provider>
+secret:<name>
+none
+```
+
+Examples:
+
+```bash
+pi-para providers
+pi-para providers set-secret embedding sk-...
+pi-para providers remove-secret embedding
+```
+
+Recommended order:
+
+1. Pi AuthStorage (`~/.pi/agent/auth.json`),
+2. pi-para secrets (`~/.pi/para/secrets.json`),
+3. `none` for local/no-auth endpoints.
+
+No env-var setup path is required.
+
+## Configure inside Pi
+
+Run:
+
+```text
+/wiki-settings
+```
+
+The settings menu writes through the same config service as the CLI. It can configure:
+
+- context token budget,
+- search limit and graph boost,
+- lint autofix/stale days,
+- capture model,
+- WebWiki host/port/enabled,
+- embedding and rerank provider profiles,
+- local secrets.
+
+## Verify inside Pi
+
+Useful commands:
+
+```text
+/wiki
+/wiki-search test
+/wiki-settings
+/wiki-scheduler status
+/wiki-lint --report-only
+```
+
+Try a smoke test:
+
+```text
+Save this to the wiki as a test note: pi-para setup succeeded.
+```
+
+Then:
+
+```text
+/wiki-search setup succeeded
+```
+
+## Background capture
+
+No daemon needs to be started.
+
+pi-para queues completed/compacted sessions and processes them when a Pi session with pi-para is open. If Pi is closed, queued work resumes on the next startup.
+
+Inspect queue/history:
+
+```bash
+pi-para tasks
+pi-para tasks history
+pi-para capture-recent --hours 24
+```
+
+Inside Pi:
+
+```text
+/wiki-scheduler queue
+/wiki-scheduler history
+/wiki-scheduler capture-history
+```
+
+`/wiki-daemon` and `pi-para-daemon` remain compatibility aliases for older workflows.
+
+## QMD search
+
+Global QMD CLI is not required. pi-para uses embedded `qmd-engine` SDK.
+
+- BM25 search works with no providers.
+- Embeddings/rerank use provider profiles in `~/.pi/para/config.jsonc`.
+- Legacy `~/.config/qmd/index.yml` is read only for compatibility.
+
+Doctor check:
+
+```bash
+pi-para doctor
+```
+
+Provider/model diagnostic:
+
+```bash
+pi-para doctor --test-capture-model
+pi-para status --json
+```
 
 ## Troubleshooting
 
-### Extension not loading
-- Check: `pi list` should show `@picassio/pi-para`
-- Try: `pi -e npm:@picassio/pi-para` for a quick test
+### Extension changed but behavior did not
 
-### qmd not found
-- Check: `which qmd` and `qmd --version`
-- Install: `npm install -g @picassio/qmd`
+Restart Pi. Existing sessions keep loaded extension code.
 
-### Search not working (no results)
-- BM25 works immediately after `wiki_write`
-- Vector search needs providers configured in `~/.config/qmd/index.yml`
-- Check: `/wiki-settings` shows providers
+### Missing or stale provider credentials
 
-### Daemon not running
-- Check: `systemctl --user status pi-para-daemon`
-- Logs: `journalctl --user -u pi-para-daemon -n 20`
-- Manual start: `cd <pi-para-dir> && npx tsx src/cli.ts start`
+Run:
 
-### Vulkan/CMake errors in logs
-- These are from qmd's node-llama-cpp dependency (safe to ignore)
-- They only appear if no API providers configured
-- Fix: configure providers in `~/.config/qmd/index.yml`
+```bash
+pi-para doctor
+pi-para providers
+```
+
+Store a local secret only if you do not want to use Pi AuthStorage:
+
+```bash
+pi-para providers set-secret embedding <key>
+```
+
+### Search works but embeddings fail
+
+BM25 search remains available. Check:
+
+```bash
+pi-para doctor
+/wiki-settings
+```
+
+Then configure or disable embedding.
+
+### Old daemon/systemd service exists
+
+The old service is no longer required. You can leave it stopped while using the in-process scheduler. Do not start both old daemon capture and the scheduler for the same wiki unless you are intentionally testing legacy behavior.

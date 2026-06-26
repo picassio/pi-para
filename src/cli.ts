@@ -1,15 +1,8 @@
 #!/usr/bin/env node
 /**
- * CLI for pi-para-daemon.
+ * CLI for pi-para.
  *
- * Usage:
- *   pi-para-daemon start [--foreground]
- *   pi-para-daemon stop
- *   pi-para-daemon status
- *   pi-para-daemon process <session_file>
- *   pi-para-daemon process-recent [--hours N]
- *   pi-para-daemon retry-failed
- *   pi-para-daemon history [--scope NAME]
+ * The old pi-para-daemon commands remain as deprecated compatibility aliases.
  */
 
 import { join } from "node:path";
@@ -19,6 +12,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { Daemon } from "./daemon.js";
 import { StateDB } from "./state.js";
 import { RegistryWatcher } from "./watcher.js";
+import { formatLegacyDaemonWarning, isLegacyDaemonCommand } from "./cli-legacy.js";
 
 // -- Model setup -------------------------------------------------------------
 // Use MiniMax via the same config as qmd-engine
@@ -150,7 +144,102 @@ async function main() {
   const command = args[0];
   const wikiDir = join(homedir(), ".pi", "wiki");
 
+  if (isLegacyDaemonCommand(command)) {
+    console.warn(formatLegacyDaemonWarning(command));
+    console.warn("");
+  }
+
   switch (command) {
+    case "setup": {
+      const dryRun = args.includes("--dry-run");
+      const localIdx = args.indexOf("--local");
+      const localPath = localIdx >= 0 ? args[localIdx + 1] : undefined;
+      const { runSetup, formatSetupResult } = await import("./setup.js");
+      const result = await runSetup({ yes: args.includes("--yes"), dryRun, localPath });
+      console.log(formatSetupResult(result));
+      break;
+    }
+
+    case "doctor": {
+      const json = args.includes("--json");
+      const { runDoctor, formatDoctorResult } = await import("./doctor.js");
+      const result = await runDoctor({
+        fix: args.includes("--fix"),
+        testCaptureModel: args.includes("--test-capture-model"),
+      });
+      console.log(json ? JSON.stringify(result, null, 2) : formatDoctorResult(result));
+      break;
+    }
+
+    case "tasks": {
+      const sub = args[1] ?? "list";
+      const {
+        listSchedulerTasks,
+        retryFailedSchedulerTasks,
+        getSchedulerTask,
+        listSchedulerHistory,
+        formatQueueItems,
+        formatQueueItem,
+        formatSchedulerHistory,
+      } = await import("./scheduler/controls.js");
+      if (sub === "retry") {
+        const taskIdx = args.indexOf("--task");
+        const taskName = taskIdx >= 0 ? args[taskIdx + 1] : undefined;
+        const count = retryFailedSchedulerTasks(wikiDir, { taskName });
+        console.log(`Requeued ${count} failed task${count === 1 ? "" : "s"}.`);
+      } else if (sub === "show") {
+        const id = parseInt(args[2] ?? "", 10);
+        if (!Number.isFinite(id)) { console.error("Usage: pi-para tasks show <id>"); process.exit(1); }
+        console.log(formatQueueItem(getSchedulerTask(wikiDir, id)));
+      } else if (sub === "history") {
+        const taskIdx = args.indexOf("--task");
+        const limitIdx = args.indexOf("--limit");
+        const taskName = taskIdx >= 0 ? args[taskIdx + 1] : undefined;
+        const limit = limitIdx >= 0 ? parseInt(args[limitIdx + 1] ?? "20", 10) : 20;
+        console.log(formatSchedulerHistory(listSchedulerHistory(wikiDir, { taskName, limit })));
+      } else {
+        const statusIdx = args.indexOf("--status");
+        const status = statusIdx >= 0 ? args[statusIdx + 1] as any : undefined;
+        console.log(formatQueueItems(listSchedulerTasks(wikiDir, { status })));
+      }
+      break;
+    }
+
+    case "capture-recent": {
+      const hoursIdx = args.indexOf("--hours");
+      const hours = hoursIdx >= 0 ? parseInt(args[hoursIdx + 1] ?? "24") : 24;
+      const { queueCaptureRecent, formatQueueCaptureRecentResult } = await import("./scheduler/controls.js");
+      const result = await queueCaptureRecent({ wikiDir, hours });
+      console.log(formatQueueCaptureRecentResult(result));
+      console.log("Queued captures run when a Pi session with pi-para is open.");
+      break;
+    }
+
+    case "providers": {
+      const sub = args[1] ?? "list";
+      const { readSecretStore, setSecret, removeSecret, redactCredential } = await import("./credentials.js");
+      if (sub === "set-secret") {
+        const name = args[2];
+        const value = args[3];
+        if (!name || !value) { console.error("Usage: pi-para providers set-secret <name> <value>"); process.exit(1); }
+        await setSecret(name, value);
+        console.log(`Stored secret:${name}`);
+      } else if (sub === "remove-secret") {
+        const name = args[2];
+        if (!name) { console.error("Usage: pi-para providers remove-secret <name>"); process.exit(1); }
+        await removeSecret(name);
+        console.log(`Removed secret:${name}`);
+      } else {
+        const secrets = await readSecretStore();
+        const names = Object.keys(secrets.secrets);
+        console.log("pi-para providers");
+        console.log("  Credential policy: Pi AuthStorage preferred; pi-para secrets fallback; env vars not used by setup.");
+        if (names.length === 0) console.log("  No pi-para local secrets configured.");
+        for (const name of names) console.log(`  secret:${name} = ${redactCredential(secrets.secrets[name])}`);
+      }
+      break;
+    }
+
     case "start": {
       const modelIdx = args.indexOf("--model");
       const modelArg = modelIdx >= 0 ? args[modelIdx + 1] : undefined;
@@ -210,6 +299,14 @@ async function main() {
     }
 
     case "status": {
+      const json = args.includes("--json");
+      const { getPiParaStatus, formatPiParaStatus } = await import("./status.js");
+      const result = await getPiParaStatus();
+      console.log(json ? JSON.stringify(result, null, 2) : formatPiParaStatus(result));
+      break;
+    }
+
+    case "legacy-status": {
       const state = new StateDB(wikiDir);
       const pid = state.getState("daemon_pid");
       const startedAt = state.getState("daemon_started_at");
@@ -358,7 +455,7 @@ async function main() {
           break;
         }
         default:
-          console.log(`pi-para-daemon gepa — GEPA prompt optimizer (DSPy GEPA via uv)
+          console.log(`pi-para gepa — GEPA prompt optimizer (DSPy GEPA via uv)
 
 Subcommands:
   optimize   Run DSPy GEPA optimization
@@ -387,25 +484,33 @@ Config (persistent defaults in ~/.pi/wiki/config.json):
     }
 
     default:
-      console.log(`pi-para-daemon — background knowledge capture
+      console.log(`pi-para — PARA wiki extension CLI
 
-Commands:
-  start              Start the daemon (foreground)
-  stop               Stop the running daemon
-  status             Show daemon status and recent history
+Primary commands:
+  setup              Configure pi-para for this machine (--yes, --dry-run, --local PATH)
+  doctor             Validate install/config/wiki/QMD health (--fix, --json, --test-capture-model)
+  tasks              Show scheduler queue (--status queued|running|done|failed)
+  tasks show <id>    Show one queued/running/done/failed task payload
+  tasks history      Show scheduler history [--task NAME] [--limit N]
+  tasks retry        Requeue failed scheduler tasks [--task NAME]
+  status             Show config/wiki/scheduler status (--json)
+  capture-recent     Queue recent completed sessions for capture (--hours N)
+  providers          List credential refs and local secrets
+  providers set-secret <name> <value>
+  providers remove-secret <name>
+  gepa <subcommand>  GEPA prompt optimizer (optimize, list, targets, compare)
+
+Legacy compatibility commands:
+  start              Deprecated daemon foreground mode
+  stop               Deprecated daemon stop
+  legacy-status      Legacy daemon status and recent history
   process <file>     Process a single session file
   process-recent     Process unprocessed sessions (--hours N, default 24)
   retry-failed       Retry all failed sessions
   history            Show processing history (--scope NAME to filter)
-  gepa <subcommand>  GEPA prompt optimizer (optimize, list, targets, compare)
 
-Options:
-  --model <provider/id>  Use specific model (e.g. anthropic/claude-sonnet-4)
-
-Model resolution order:
-  1. --model flag
-  2. Pi's model registry (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-  3. ~/.config/qmd/index.yml chat provider (MiniMax, OpenRouter, etc.)`);
+Credential policy:
+  Use Pi AuthStorage or ~/.pi/para/secrets.json. Setup does not use env vars for API keys.`);
       break;
   }
 }

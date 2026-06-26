@@ -143,14 +143,15 @@ describe("piPara extension entry point", () => {
     expect(cmdNames).toContain("wiki-summarize");
   });
 
-  it("creates config.json with defaults during async factory", async () => {
+  it("creates config.jsonc with defaults during async factory", async () => {
     const pi = createMockPi();
     await piPara(pi as unknown as Parameters<typeof piPara>[0]);
 
     // Config should be created by the async factory (loadConfig)
-    const configContent = await readFile(join(wikiDir, "config.json"), "utf-8");
+    const configContent = await readFile(join(configDir, ".pi", "para", "config.jsonc"), "utf-8");
     const config = JSON.parse(configContent);
-    expect(config.contextMaxTokens).toBe(4000);  });
+    expect(config.context.maxTokens).toBe(4000);
+  });
 
   it("session_start creates wiki directory structure", async () => {
     const pi = createMockPi();

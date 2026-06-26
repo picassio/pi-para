@@ -89,10 +89,10 @@ describe("tools", () => {
   }, 10_000);
 
   describe("createStandaloneTools", () => {
-    it("returns 4 tools", () => {
-      expect(tools).toHaveLength(4);
+    it("returns 5 tools", () => {
+      expect(tools).toHaveLength(5);
       const names = tools.map((t) => t.name).sort();
-      expect(names).toEqual(["wiki_move", "wiki_query", "wiki_read", "wiki_write"]);
+      expect(names).toEqual(["wiki_edit", "wiki_move", "wiki_query", "wiki_read", "wiki_write"]);
     });
 
     it("all tools have required fields", () => {
