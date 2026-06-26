@@ -335,6 +335,15 @@ describe("tools", () => {
   });
 
   describe("wiki_read", () => {
+    it("reads index.md via index alias", async () => {
+      const tool = findTool(tools, "wiki_read");
+      const result = await tool.execute("call-1", { path: "index" });
+
+      expect(getToolText(result)).toContain("Wiki Index");
+      expect((result.details as { found: boolean; path: string }).found).toBe(true);
+      expect((result.details as { found: boolean; path: string }).path).toBe("index.md");
+    });
+
     it("reads a page by category/slug path", async () => {
       await writePage(wikiDir, makePage("resources", "read-test", {
         body: "Readable content here.",

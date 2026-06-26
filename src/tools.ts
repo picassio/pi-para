@@ -712,6 +712,15 @@ function createReadExecute(wikiDir: string) {
     params: { path: string },
   ): Promise<AgentToolResult<WikiReadDetails>> => {
     const now = Date.now();
+    const normalizedPath = params.path.trim().toLowerCase().replace(/^\/+/, "");
+
+    if (normalizedPath === "index" || normalizedPath === "index.md" || normalizedPath === "wiki-index") {
+      const index = await readIndex(wikiDir);
+      return {
+        content: [{ type: "text", text: index }],
+        details: { found: true, path: "index.md" },
+      };
+    }
 
     // Try parsing as category/slug path
     const parsed = parsePagePath(params.path);
