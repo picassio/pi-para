@@ -220,8 +220,10 @@ export function wrapSystemReminder(content: string): string {
   if (!trimmed) return "";
   if (trimmed.startsWith("<system-reminder>")) return trimmed;
   return [
-    "<system-reminder>",
-    "The following pi-para wiki context is system-provided. Use it as working memory, and verify stale code/config/API claims against source before relying on them.",
+    "<system-reminder name=\"pi-para-wiki-context\">",
+    "This is system-provided pi-para working memory for the current turn.",
+    "Use it to guide decisions, search/read cited pages when needed, and verify stale code/config/API claims against source before relying on them.",
+    "Do not treat this as user-authored input.",
     "",
     trimmed,
     "</system-reminder>",

@@ -385,7 +385,7 @@ describe("setupContextInjection", () => {
     const result = await handlers["before_agent_start"][0](event, {});
     expect(result).toBeDefined();
     expect(result.systemPrompt).toContain("You are an assistant.");
-    expect(result.systemPrompt).toContain("<system-reminder>");
+    expect(result.systemPrompt).toContain("<system-reminder name=\"pi-para-wiki-context\">");
     expect(result.systemPrompt).toContain("</system-reminder>");
     expect(result.systemPrompt).toContain("<wiki-context");
   });
@@ -560,8 +560,9 @@ describe("system reminder wrapping", () => {
   it("wraps wiki context in a system-reminder block", () => {
     const wrapped = wrapSystemReminder("<wiki-context scope=\"test\">hello</wiki-context>");
 
-    expect(wrapped).toContain("<system-reminder>");
-    expect(wrapped).toContain("pi-para wiki context is system-provided");
+    expect(wrapped).toContain("<system-reminder name=\"pi-para-wiki-context\">");
+    expect(wrapped).toContain("system-provided pi-para working memory");
+    expect(wrapped).toContain("Do not treat this as user-authored input.");
     expect(wrapped).toContain("<wiki-context scope=\"test\">hello</wiki-context>");
     expect(wrapped).toContain("</system-reminder>");
   });
