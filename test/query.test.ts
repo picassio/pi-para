@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -174,6 +174,40 @@ describe("queryWiki", () => {
     }, testScope);
 
     expect(result.scopeUsed.include).toContain("custom-scope");
+  });
+
+  it("refreshes the QMD index once before returning no results", async () => {
+    const body = `---
+title: Delayed Page
+para: resources
+scope:
+  - test-project
+tags:
+  - delayed
+sources: []
+created: "${now}"
+updated: "${now}"
+links: []
+---
+Delayed smoke content for index refresh.`;
+    let searchCalls = 0;
+    const fakeStore = {
+      searchLex: vi.fn(async () => {
+        searchCalls++;
+        return searchCalls === 1
+          ? []
+          : [{ displayPath: "wiki/resources/delayed-page.md", score: 0.9, body }];
+      }),
+      update: vi.fn(async () => {}),
+      getStatus: vi.fn(async () => ({ hasVectorIndex: false })),
+      internal: {},
+    } as unknown as QMDStore;
+
+    const result = await queryWiki(fakeStore, { query: "delayed smoke" }, testScope);
+
+    expect((fakeStore as any).update).toHaveBeenCalledTimes(1);
+    expect((fakeStore as any).searchLex).toHaveBeenCalledTimes(2);
+    expect(result.results.map((r) => r.page.slug)).toContain("delayed-page");
   });
 
   it("returns empty results for unmatched query", async () => {

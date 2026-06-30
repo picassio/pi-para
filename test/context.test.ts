@@ -10,6 +10,7 @@ import {
   markContextDirty,
   setupContextInjection,
   MAX_CONTEXT_PAGES,
+  wrapSystemReminder,
 } from "../src/context.js";
 import type { ContextOptions, ContextConfig } from "../src/context.js";
 
@@ -384,6 +385,8 @@ describe("setupContextInjection", () => {
     const result = await handlers["before_agent_start"][0](event, {});
     expect(result).toBeDefined();
     expect(result.systemPrompt).toContain("You are an assistant.");
+    expect(result.systemPrompt).toContain("<system-reminder>");
+    expect(result.systemPrompt).toContain("</system-reminder>");
     expect(result.systemPrompt).toContain("<wiki-context");
   });
 
@@ -550,6 +553,22 @@ describe("setupContextInjection", () => {
       // 300 tokens * 4 chars = 1200 chars max, plus overhead for guidelines + verification reminder
       expect(wikiPart.length).toBeLessThan(2200);
     }
+  });
+});
+
+describe("system reminder wrapping", () => {
+  it("wraps wiki context in a system-reminder block", () => {
+    const wrapped = wrapSystemReminder("<wiki-context scope=\"test\">hello</wiki-context>");
+
+    expect(wrapped).toContain("<system-reminder>");
+    expect(wrapped).toContain("pi-para wiki context is system-provided");
+    expect(wrapped).toContain("<wiki-context scope=\"test\">hello</wiki-context>");
+    expect(wrapped).toContain("</system-reminder>");
+  });
+
+  it("does not double-wrap an existing system-reminder", () => {
+    const existing = "<system-reminder>hello</system-reminder>";
+    expect(wrapSystemReminder(existing)).toBe(existing);
   });
 });
 

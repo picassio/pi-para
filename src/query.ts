@@ -79,13 +79,27 @@ export async function queryWiki(
     effectiveScope = scope;
   }
 
-  const results = await searchWiki(store, options.query, {
+  let results = await searchWiki(store, options.query, {
     scope: effectiveScope,
     category: options.category,
     limit,
     includeArchives,
     graphBoost: options.graphBoost,
   });
+
+  // If QMD's BM25 index is stale, freshly written/readable pages can return
+  // as zero search results. On a miss, refresh the filesystem index once and
+  // retry before telling the agent the wiki lacks matching content.
+  if (results.length === 0) {
+    await store.update();
+    results = await searchWiki(store, options.query, {
+      scope: effectiveScope,
+      category: options.category,
+      limit,
+      includeArchives,
+      graphBoost: options.graphBoost,
+    });
+  }
 
   return {
     results,

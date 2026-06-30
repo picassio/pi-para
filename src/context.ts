@@ -214,6 +214,20 @@ export async function buildContext(
   return header + "\n" + parts.join("\n\n") + "\n" + footer;
 }
 
+/** Wrap injected wiki context as a system-originated reminder. */
+export function wrapSystemReminder(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("<system-reminder>")) return trimmed;
+  return [
+    "<system-reminder>",
+    "The following pi-para wiki context is system-provided. Use it as working memory, and verify stale code/config/API claims against source before relying on them.",
+    "",
+    trimmed,
+    "</system-reminder>",
+  ].join("\n");
+}
+
 // -- Caching and lifecycle ---------------------------------------------------
 
 /** Module-level dirty flag, exported for tools.ts to call after mutations. */
@@ -269,7 +283,7 @@ export function setupContextInjection(
         // Return cached context
         if (cachedContext) {
           return {
-            systemPrompt: event.systemPrompt + "\n\n" + cachedContext,
+            systemPrompt: event.systemPrompt + "\n\n" + wrapSystemReminder(cachedContext),
           };
         }
         return;
@@ -295,7 +309,7 @@ export function setupContextInjection(
 
       if (cachedContext) {
         return {
-          systemPrompt: event.systemPrompt + "\n\n" + cachedContext,
+          systemPrompt: event.systemPrompt + "\n\n" + wrapSystemReminder(cachedContext),
         };
       }
     },
