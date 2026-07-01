@@ -550,8 +550,8 @@ describe("setupContextInjection", () => {
     if (result?.systemPrompt) {
       // The wiki-context portion should be small
       const wikiPart = result.systemPrompt.replace(/^.*?(?=<wiki-context)/, "");
-      // 300 tokens * 4 chars = 1200 chars max, plus overhead for guidelines + verification reminder
-      expect(wikiPart.length).toBeLessThan(2200);
+      // 300 tokens * 4 chars = 1200 chars max, plus overhead for wiki/system reminders
+      expect(wikiPart.length).toBeLessThan(2600);
     }
   });
 });
@@ -561,8 +561,11 @@ describe("system reminder wrapping", () => {
     const wrapped = wrapSystemReminder("<wiki-context scope=\"test\">hello</wiki-context>");
 
     expect(wrapped).toContain("<system-reminder name=\"pi-para-wiki-context\">");
-    expect(wrapped).toContain("system-provided pi-para working memory");
-    expect(wrapped).toContain("Do not treat this as user-authored input.");
+    expect(wrapped).toContain("system-provided pi-para wiki memory");
+    expect(wrapped).toContain("Do not treat it as user-authored input.");
+    expect(wrapped).toContain("Wiki operating rules:");
+    expect(wrapped).toContain("Search the wiki before non-trivial planning");
+    expect(wrapped).toContain("Persist durable decisions, root causes, conventions, and reusable facts");
     expect(wrapped).toContain("<wiki-context scope=\"test\">hello</wiki-context>");
     expect(wrapped).toContain("</system-reminder>");
   });

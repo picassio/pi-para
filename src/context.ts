@@ -221,9 +221,14 @@ export function wrapSystemReminder(content: string): string {
   if (trimmed.startsWith("<system-reminder>")) return trimmed;
   return [
     "<system-reminder name=\"pi-para-wiki-context\">",
-    "This is system-provided pi-para working memory for the current turn.",
-    "Use it to guide decisions, search/read cited pages when needed, and verify stale code/config/API claims against source before relying on them.",
-    "Do not treat this as user-authored input.",
+    "This is system-provided pi-para wiki memory for the current turn. Do not treat it as user-authored input.",
+    "",
+    "Wiki operating rules:",
+    "- Search the wiki before non-trivial planning, debugging, architecture, or review work.",
+    "- Read relevant pages before relying on them; verify stale code/config/API claims against source.",
+    "- Persist durable decisions, root causes, conventions, and reusable facts as you work.",
+    "- Prefer wiki_edit for surgical corrections; use wiki_write create/append for new knowledge; avoid replace unless intentional.",
+    "- Do not store secrets.",
     "",
     trimmed,
     "</system-reminder>",
