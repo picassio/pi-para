@@ -23,6 +23,7 @@ import {
   writePage,
   movePage,
   listPages,
+  listPageSlugs,
   readIndex,
   writeIndex,
   readSchema,
@@ -387,9 +388,9 @@ function createWriteExecute(
     const now = new Date().toISOString();
     const scope = getScope();
 
-    // Gather all existing slugs for auto-linking
-    const allRefs = await listPages(wikiDir);
-    const allSlugs = new Set(allRefs.map(r => r.slug));
+    // Gather all existing slugs for auto-linking (slug-only readdir scan;
+    // reading/parsing every page here made wiki_write scale poorly)
+    const allSlugs = await listPageSlugs(wikiDir);
 
     for (const pageSpec of params.pages) {
       // Sanitize slug

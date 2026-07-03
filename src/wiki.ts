@@ -351,19 +351,22 @@ export async function listPages(
       continue; // directory doesn't exist yet
     }
 
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-      const slug = entry.slice(0, -3);
-      const filePath = join(dirPath, entry);
-      const content = await readFile(filePath, "utf-8");
-      const { frontmatter } = parseFrontmatter(content);
-      refs.push({
-        category: cat,
-        slug,
-        title: frontmatter.title,
-        path: `${cat}/${entry}`,
-      });
-    }
+    const catRefs = await Promise.all(
+      entries
+        .filter((entry) => entry.endsWith(".md"))
+        .map(async (entry): Promise<PageRef> => {
+          const slug = entry.slice(0, -3);
+          const content = await readFile(join(dirPath, entry), "utf-8");
+          const { frontmatter } = parseFrontmatter(content);
+          return {
+            category: cat,
+            slug,
+            title: frontmatter.title,
+            path: `${cat}/${entry}`,
+          };
+        }),
+    );
+    refs.push(...catRefs);
   }
 
   // Sort by category order, then slug alphabetically
@@ -376,6 +379,26 @@ export async function listPages(
   });
 
   return refs;
+}
+
+/**
+ * List page slugs across all PARA categories without reading file contents.
+ * Much cheaper than listPages() when only slugs are needed (e.g. auto-linking).
+ */
+export async function listPageSlugs(wikiDir: string): Promise<Set<string>> {
+  const slugs = new Set<string>();
+  for (const cat of PARA_CATEGORIES) {
+    let entries: string[];
+    try {
+      entries = await readdir(join(wikiDir, cat));
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.endsWith(".md")) slugs.add(entry.slice(0, -3));
+    }
+  }
+  return slugs;
 }
 
 /**
@@ -439,8 +462,6 @@ function git(wikiDir: string, args: string[]): Promise<string | null> {
  * each category, and writes a standardized index.md with one-line summaries.
  */
 export async function rebuildIndex(wikiDir: string): Promise<void> {
-  const allRefs = await listPages(wikiDir);
-
   const sections: Record<ParaCategory, string[]> = {
     projects: [],
     areas: [],
@@ -448,14 +469,36 @@ export async function rebuildIndex(wikiDir: string): Promise<void> {
     archives: [],
   };
 
-  for (const ref of allRefs) {
-    const page = await readPage(wikiDir, ref.category, ref.slug);
-    const title = page?.frontmatter.title ?? ref.title;
-    const summary = page ? extractFirstParagraphFromBody(page.body) : "";
-    const desc = summary && summary !== "(no summary)"
-      ? ": " + (summary.length > 120 ? summary.slice(0, 117) + "..." : summary)
-      : "";
-    sections[ref.category].push(`- [[${ref.slug}]] \u2014 ${title}${desc}`);
+  // Single pass: read each page file exactly once, in parallel per category.
+  // (Previously this called listPages() and then readPage() per page, reading
+  // every file twice sequentially — the dominant cost of wiki_write at scale.)
+  for (const cat of PARA_CATEGORIES) {
+    const dirPath = join(wikiDir, cat);
+    let entries: string[];
+    try {
+      entries = await readdir(dirPath);
+    } catch {
+      continue; // directory doesn't exist yet
+    }
+
+    const lines = await Promise.all(
+      entries
+        .filter((entry) => entry.endsWith(".md"))
+        .map((entry) => entry.slice(0, -3))
+        .sort((a, b) => a.localeCompare(b))
+        .map(async (slug) => {
+          const entry = `${slug}.md`;
+          const content = await readFile(join(dirPath, entry), "utf-8");
+          const { frontmatter, body } = parseFrontmatter(content);
+          const title = frontmatter.title;
+          const summary = extractFirstParagraphFromBody(body);
+          const desc = summary && summary !== "(no summary)"
+            ? ": " + (summary.length > 120 ? summary.slice(0, 117) + "..." : summary)
+            : "";
+          return `- [[${slug}]] \u2014 ${title}${desc}`;
+        }),
+    );
+    sections[cat].push(...lines);
   }
 
   const categoryLabels: Record<ParaCategory, string> = {
