@@ -17,7 +17,6 @@ import { Type } from "typebox";
 import type { ProjectScope } from "./scope.js";
 import { resolveSource, truncateSource, detectSourceType } from "./ingest.js";
 import { queryWiki as queryWikiLib, formatQueryResults, formatFreshness } from "./query.js";
-import { reindex } from "./store.js";
 import {
   readPage,
   writePage,
@@ -553,8 +552,12 @@ function createWriteExecute(
       logAppended = true;
     }
 
-    // Re-index for BM25 (fast). Do NOT embed — deferred to shutdown.
-    await reindex(store);
+    // Defer QMD BM25 reindex to the debounced background maintenance queue
+    // (same as wiki_edit). Immediate post-write queries are safe: queryWiki
+    // retries with a fresh store.update() before returning zero results.
+    if (pagesWritten.length > 0) {
+      scheduleWikiMaintenance(wikiDir, store, markDirty);
+    }
 
     // Mark context cache dirty so before_agent_start rebuilds
     markDirty();
@@ -822,9 +825,10 @@ function createMoveExecute(
 
     await movePage(wikiDir, ref, params.to);
 
-    // Re-index and rebuild index.md
-    await reindex(store);
+    // Rebuild index.md inline (fast, single-pass); defer QMD reindex to the
+    // debounced background maintenance queue like wiki_write/wiki_edit.
     await rebuildIndex(wikiDir);
+    scheduleWikiMaintenance(wikiDir, store, markDirty);
     markDirty();
 
     // Git commit
