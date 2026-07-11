@@ -180,8 +180,9 @@
     "vitest": "^3.2.4"
   },
   "keywords": [
+    "pi-package",
+    "pi-extension",
     "pi",
-    "extension",
     "para",
     "knowledge-base",
     "wiki"
