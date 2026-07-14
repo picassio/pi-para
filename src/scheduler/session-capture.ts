@@ -90,7 +90,7 @@ export function enqueueCompletedSessions(
 }
 
 export function createCaptureSessionHandler(deps: CaptureSessionDeps): SchedulerTaskHandler {
-  return async (item: QueueItem) => {
+  return async (item: QueueItem, scheduler: WikiScheduler) => {
     const payload = item.payload as CaptureSessionPayload;
     if (!payload.sessionPath) throw new Error("capture-session payload missing sessionPath");
     if (!existsSync(payload.sessionPath)) throw new Error(`Session file not found: ${payload.sessionPath}`);
@@ -111,6 +111,14 @@ export function createCaptureSessionHandler(deps: CaptureSessionDeps): Scheduler
         stateDb.recordSuccess(payload.sessionPath, scope, [], []);
       } else {
         stateDb.recordSuccess(payload.sessionPath, scope, result.pagesCreated, result.pagesUpdated);
+        // Capture writes pages through processSession, which reindexes BM25
+        // inline but never embeds. Chain a deduplicated qmd-embed task so the
+        // new pages become vector-searchable without waiting for the next
+        // session startup drain. Enqueued on the same scheduler, so the
+        // surrounding tick loop claims it right after this task completes.
+        if (scheduler.embedEnabled && result.pagesCreated.length + result.pagesUpdated.length > 0) {
+          scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

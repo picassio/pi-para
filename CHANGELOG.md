@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- `capture-session` now chains the deduplicated `qmd-embed` task after writing pages, so knowledge captured mid-session becomes vector-searchable immediately instead of waiting for the next Pi startup drain (capture reindexes BM25 inline but never embedded).
+
 ## [0.6.2] — 2026-07-14
 
 ### Added

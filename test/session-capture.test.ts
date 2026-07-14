@@ -115,6 +115,77 @@ describe("scheduler session capture", () => {
     }
   });
 
+  it("capture-session chains qmd-embed when pages were written and embedding is enabled", async () => {
+    const tmp = await tempWiki();
+    try {
+      const session = join(tmp.dir, "session.jsonl");
+      await writeFile(session, `${JSON.stringify({ cwd: "/repo/proj" })}\ncontent`, "utf-8");
+      const state = new StateDB(tmp.dir);
+      let embedCalls = 0;
+      const store = {
+        getStatus: async () => ({ hasVectorIndex: false, needsEmbedding: 2 }),
+        embed: async () => { embedCalls++; return { docsProcessed: 2, chunksEmbedded: 2, errors: 0, durationMs: 5 }; },
+      };
+      const scheduler = new WikiScheduler({
+        wikiDir: tmp.dir,
+        dbPath: join(tmp.dir, ".pi-para.sqlite"),
+        storeProvider: () => store as any,
+        embedEnabled: true,
+        handlers: {
+          "capture-session": createCaptureSessionHandler({
+            wikiDir: tmp.dir,
+            storeProvider: () => store as any,
+            model: {} as any,
+            getApiKey: async () => "key",
+            stateDb: state,
+            processor: async () => ({ skipped: false, pagesCreated: ["resources/a"], pagesUpdated: [] }),
+          }),
+        },
+      });
+      scheduler.enqueue("capture-session", { sessionPath: session, scope: "proj" });
+      // One tick drains capture AND the chained qmd-embed task.
+      expect(await scheduler.tick()).toBe(2);
+      expect(embedCalls).toBe(1);
+      const tasks = scheduler.state.list().map((t) => `${t.taskName}:${t.status}`);
+      expect(tasks).toContain("qmd-embed:done");
+      scheduler.stop();
+      state.close();
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
+  it("capture-session does not chain qmd-embed for skipped sessions or disabled embedding", async () => {
+    const tmp = await tempWiki();
+    try {
+      const session = join(tmp.dir, "session.jsonl");
+      await writeFile(session, `${JSON.stringify({ cwd: "/repo/proj" })}\ncontent`, "utf-8");
+      const state = new StateDB(tmp.dir);
+      const scheduler = new WikiScheduler({
+        wikiDir: tmp.dir,
+        dbPath: join(tmp.dir, ".pi-para.sqlite"),
+        embedEnabled: false,
+        handlers: {
+          "capture-session": createCaptureSessionHandler({
+            wikiDir: tmp.dir,
+            storeProvider: () => ({} as any),
+            model: {} as any,
+            getApiKey: async () => "key",
+            stateDb: state,
+            processor: async () => ({ skipped: false, pagesCreated: ["resources/a"], pagesUpdated: [] }),
+          }),
+        },
+      });
+      scheduler.enqueue("capture-session", { sessionPath: session, scope: "proj" });
+      expect(await scheduler.tick()).toBe(1);
+      expect(scheduler.state.list().map((t) => t.taskName)).not.toContain("qmd-embed");
+      scheduler.stop();
+      state.close();
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
   it("capture-session handler fails clearly when dependencies are unavailable", async () => {
     const tmp = await tempWiki();
     try {
