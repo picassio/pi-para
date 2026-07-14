@@ -1,62 +1,6 @@
 /**
  * LLM prompt templates for ingest, query, lint, capture, and summarize operations.
- *
- * Use getPrompt(name) to load the GEPA-optimized version (if deployed) or the original.
  */
-
-import { readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
-
-/**
- * Load a prompt by name — returns the GEPA-optimized version if
- * config.gepa.useOptimized is true, otherwise returns the original.
- *
- * Resolution order:
- * 1. User-generated optimized prompt at ~/.pi/wiki/gepa/optimized/{name}.txt
- * 2. Bundled optimized prompt shipped with the package (src/gepa/optimized/{name}.txt)
- * 3. Original constant from this file
- */
-export function getPrompt(name: string): string {
-  const original = _originals()[name];
-  if (!original) return "";
-  try {
-    const cfgPath = join(homedir(), ".pi", "wiki", "config.json");
-    if (!existsSync(cfgPath)) return original;
-    const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
-    if (!cfg.gepa?.useOptimized) return original;
-
-    // 1. Check user-generated optimized prompt
-    const userPath = join(homedir(), ".pi", "wiki", "gepa", "optimized", `${name}.txt`);
-    if (existsSync(userPath)) {
-      const content = readFileSync(userPath, "utf-8").trim();
-      if (content.length > 50) return content;
-    }
-
-    // 2. Check bundled optimized prompt (shipped with package)
-    const bundledPath = join(dirname(new URL(import.meta.url).pathname), "..", "gepa", "optimized", `${name}.txt`);
-    if (existsSync(bundledPath)) {
-      const content = readFileSync(bundledPath, "utf-8").trim();
-      if (content.length > 50) return content;
-    }
-  } catch { /* fall through to original */ }
-  return original;
-}
-
-function _originals(): Record<string, string> {
-  return {
-    "wiki-system-prompt": WIKI_SYSTEM_PROMPT,
-    "ingest-prompt": INGEST_PROMPT,
-    "query-prompt": QUERY_PROMPT,
-    "capture-system-prompt": CAPTURE_SYSTEM_PROMPT,
-    "capture-prompt": CAPTURE_PROMPT,
-    "explicit-capture-prompt": EXPLICIT_CAPTURE_PROMPT,
-    "summarize-system-prompt": SUMMARIZE_SYSTEM_PROMPT,
-    "iterative-update-prompt": ITERATIVE_UPDATE_PROMPT,
-    "overview-prompt": OVERVIEW_PROMPT,
-    "lint-prompt": LINT_PROMPT,
-  };
-}
 
 // -- Wiki System Prompt (standalone agent) ------------------------------------
 

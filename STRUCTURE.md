@@ -13,7 +13,6 @@ SETUP_SETTINGS_FLOW_PLAN.md
 package.json
 src/
 test/
-scripts/gepa/
 skills/
 ```
 
@@ -75,14 +74,6 @@ src/scheduler/
 ├── leases.ts          # SQLite lease acquire/release
 ├── controls.ts        # CLI/command observability helpers
 └── session-capture.ts # completed-session registry and capture task handler
-```
-
-### GEPA
-
-```text
-src/gepa/index.ts       # TS orchestration/CLI integration
-src/templates/prompts.ts
-scripts/gepa/           # uv/DSPy Python optimizer
 ```
 
 ### Legacy/compatibility

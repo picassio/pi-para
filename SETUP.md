@@ -11,7 +11,7 @@ This is the current setup flow for pi-para. It is cross-platform and does not re
 ## Standard install
 
 ```bash
-pi install pi-para
+pi install npm:pi-para
 ```
 
 Then restart Pi.

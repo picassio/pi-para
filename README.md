@@ -7,7 +7,7 @@ pi-para runs as a normal Pi extension: no required daemon, no `systemd`, and no 
 ## Install
 
 ```bash
-pi install pi-para
+pi install npm:pi-para
 # or, for npm/npx setup flows:
 npx pi-para@latest setup
 ```
@@ -79,7 +79,6 @@ pi-para capture-recent --hours 24
 pi-para providers
 pi-para providers set-secret <name> <value>
 pi-para providers remove-secret <name>
-pi-para gepa optimize --target capture-prompt
 ```
 
 `pi-para-daemon` remains as a temporary compatibility binary, but the primary runtime is the in-process scheduler. Legacy daemon status is available as `pi-para legacy-status` for troubleshooting old installs.
@@ -148,33 +147,6 @@ The optional web wiki can be enabled from `/wiki-settings`:
 ```
 
 It serves the wiki viewer/editor/graph on the configured host/port.
-
-## GEPA Prompt Optimizer
-
-pi-para can optimize prompts/tools/skills using DSPy GEPA via `uv` and custom DSPy `BaseLM` providers.
-
-Recommended roles:
-
-| Role | Default |
-|---|---|
-| Student | `anthropic/claude-sonnet-4-20250514` |
-| Teacher/reflection | `anthropic/claude-opus-4-6` |
-| Judge | `anthropic/claude-sonnet-4-20250514` |
-
-Examples:
-
-```bash
-pi-para gepa targets
-pi-para gepa optimize --target capture-prompt
-pi-para gepa optimize --target skill-para \
-  --student-model anthropic/claude-sonnet-4-20250514 \
-  --teacher-model anthropic/claude-opus-4-6 \
-  --judge-model anthropic/claude-sonnet-4-20250514
-pi-para gepa list
-pi-para gepa compare --target capture-prompt
-```
-
-GEPA uses `~/.pi/agent/auth.json`/custom providers; it does not use LiteLLM.
 
 ## Obsidian compatibility
 

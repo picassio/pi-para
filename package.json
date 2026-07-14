@@ -1,6 +1,6 @@
 {
   "name": "pi-para",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "PARA Knowledge Base Extension for pi — persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
@@ -146,6 +146,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc -p tsconfig.json && node scripts/build-assets.mjs",
+    "prepack": "npm run build",
     "check": "tsc --noEmit",
     "test": "vitest --run",
     "test:coverage": "vitest --run --coverage",

@@ -10,7 +10,7 @@ Read and follow the instructions in `SETUP.md` at the root of the pi-para packag
 The setup file is at: `{{skill_dir}}/../../SETUP.md`
 
 Steps:
-1. `pi install @picassio/pi-para` (extension)
+1. `pi install npm:pi-para` (extension)
 2. `npm install -g @picassio/qmd` (search engine)
 3. Configure `~/.config/qmd/index.yml` (providers)
 4. Set `daemonModel` in `~/.pi/wiki/config.json` (daemon LLM)

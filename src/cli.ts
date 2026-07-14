@@ -413,75 +413,6 @@ async function main() {
       break;
     }
 
-    case "gepa": {
-      const sub = args[1];
-      const { runGEPA, listOptimized, compareTarget, extractTargets } = await import("./gepa/index.js");
-      switch (sub) {
-        case "optimize": {
-          const g = (flag: string) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; };
-          try {
-            await runGEPA({
-              target: g("--target"),
-              studentModel: g("--student-model") ?? g("--model"),
-              teacherModel: g("--teacher-model") ?? g("--reflection-model"),
-              judgeModel: g("--judge-model"),
-              auto: (g("--auto") ?? undefined) as "light" | "medium" | "heavy" | undefined,
-              maxMetricCalls: g("--max-metric-calls") ? parseInt(g("--max-metric-calls")!) : undefined,
-              threads: g("--threads") ? parseInt(g("--threads")!) : undefined,
-              seed: g("--seed") ? parseInt(g("--seed")!) : undefined,
-            });
-          } catch (err) {
-            console.error(`[gepa] Error: ${err instanceof Error ? err.message : err}`);
-            process.exit(1);
-          }
-          break;
-        }
-        case "list": {
-          const items = listOptimized();
-          if (items.length === 0) { console.log("No optimized prompts. Run 'gepa optimize' first."); }
-          else { for (const i of items) console.log(`  ${i.name}: score=${i.score.toFixed(3)} model=${i.model}`); }
-          break;
-        }
-        case "targets": {
-          for (const t of extractTargets()) console.log(`  ${t.name} (${t.type}): ${t.content.length} chars`);
-          break;
-        }
-        case "compare": {
-          const name = args[args.indexOf("--target") + 1];
-          if (!name) { console.error("Usage: gepa compare --target <name>"); process.exit(1); }
-          const d = compareTarget(name);
-          if (!d) console.log(`No optimized version for '${name}'.`);
-          else { console.log("=== ORIGINAL ===\n" + d.original.slice(0, 500)); console.log("\n=== OPTIMIZED ===\n" + d.optimized.slice(0, 500)); }
-          break;
-        }
-        default:
-          console.log(`pi-para gepa — GEPA prompt optimizer (DSPy GEPA via uv)
-
-Subcommands:
-  optimize   Run DSPy GEPA optimization
-  list       Show optimized prompts and scores
-  targets    List all 22 optimization targets
-  compare    Compare original vs optimized for a target
-
-Options (optimize):
-  --target <name>           Optimize only this target
-  --student-model <spec>    Student LM — runs proxy (default: anthropic/claude-sonnet-4-20250514)
-  --teacher-model <spec>    Teacher/reflection LM — proposes mutations (default: anthropic/claude-opus-4-6)
-  --judge-model <spec>      Judge LM — scores output (default: same as student)
-  --model <spec>            Shorthand for --student-model
-  --reflection-model <spec> Shorthand for --teacher-model
-  --auto light|medium|heavy Budget preset (default: light)
-  --max-metric-calls <N>    Override auto with explicit budget
-  --threads <N>             Parallel eval threads (default: 2)
-  --seed <N>                Random seed (default: 42)
-
-Config (persistent defaults in ~/.pi/wiki/config.json):
-  gepa.studentModel    gepa.teacherModel    gepa.judgeModel
-  gepa.auto            gepa.threads         gepa.seed
-  gepa.useOptimized    (toggle optimized prompts at runtime)`);
-      }
-      break;
-    }
 
     default:
       console.log(`pi-para — PARA wiki extension CLI
@@ -498,7 +429,6 @@ Primary commands:
   providers          List credential refs and local secrets
   providers set-secret <name> <value>
   providers remove-secret <name>
-  gepa <subcommand>  GEPA prompt optimizer (optimize, list, targets, compare)
 
 Legacy compatibility commands:
   start              Deprecated daemon foreground mode

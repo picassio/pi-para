@@ -12,6 +12,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # NPM_TOKEN lives in this environment (required reviewer + v* tag policy).
+    # A workflow modified to drop this line loses access to the token.
+    environment: npm-publish
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,8 +38,46 @@ jobs:
             echo "already=true" >> "$GITHUB_ENV"
             echo "$NAME@$PKG already on npm — skipping"
           fi
+      - name: Install dependencies
+        if: env.already != 'true'
+        run: npm ci
+      - name: Typecheck
+        if: env.already != 'true'
+        run: npm run check
+      - name: Unit tests
+        if: env.already != 'true'
+        run: npm test
+      - name: Build
+        if: env.already != 'true'
+        run: npm run build
+      - name: Pack
+        if: env.already != 'true'
+        run: |
+          npm pack
+          PKG="$(node -p "require('./package.json').version")"
+          echo "TARBALL=pi-para-$PKG.tgz" >> "$GITHUB_ENV"
+      - name: Assert tarball contains dist/cli.js
+        if: env.already != 'true'
+        run: |
+          tar -tzf "$TARBALL" | grep -q '^package/dist/cli.js$' || {
+            echo "FATAL: $TARBALL is missing package/dist/cli.js" >&2
+            tar -tzf "$TARBALL" | head -40 >&2
+            exit 1
+          }
+          tar -tzf "$TARBALL" | grep -q '^package/dist/index.js$' || {
+            echo "FATAL: $TARBALL is missing package/dist/index.js" >&2
+            exit 1
+          }
+          echo "tarball dist/ verified ($(tar -tzf "$TARBALL" | grep -c '^package/dist/') files)"
+      - name: Post-pack smoke (setup --dry-run from tarball)
+        if: env.already != 'true'
+        run: |
+          SMOKE_HOME="$(mktemp -d)"
+          NPXCACHE="$(mktemp -d)"
+          HOME="$SMOKE_HOME" USERPROFILE="$SMOKE_HOME" npm_config_cache="$NPXCACHE" \
+            npx -y "./$TARBALL" setup --yes --dry-run
       - name: Publish
         if: env.already != 'true'
-        run: npm publish --provenance --access public
+        run: npm publish "./$TARBALL" --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

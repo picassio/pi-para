@@ -55,7 +55,6 @@ describe("config", () => {
       lintStaleDays: 30,
       daemonModel: "anthropic/claude-sonnet-4-20250514",
       webWiki: { enabled: true, host: "0.0.0.0", port: 1234 },
-      gepa: { threads: 4 },
     }, getDefaultUserConfig("/home/alice"), "/home/alice");
 
     expect(migrated.wiki.dir).toBe(join("/home/alice", "wiki2"));
@@ -63,7 +62,6 @@ describe("config", () => {
     expect(migrated.lint).toEqual({ autoFix: false, staleDays: 30 });
     expect(migrated.models.capture).toEqual({ provider: "anthropic", model: "claude-sonnet-4-20250514", credentialRef: "pi-auth:anthropic" });
     expect(migrated.webWiki).toMatchObject({ enabled: true, host: "0.0.0.0", port: 1234 });
-    expect(migrated.gepa.threads).toBe(4);
   });
 
   it("saves, loads, and converts to legacy runtime config", async () => {

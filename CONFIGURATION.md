@@ -66,15 +66,6 @@ Planned/project-level overrides may use `<project>/.pi/para.jsonc` in a later sl
     "host": "127.0.0.1",
     "port": 10973,
     "launch": "manual"
-  },
-  "gepa": {
-    "useOptimized": false,
-    "studentModel": "anthropic/claude-sonnet-4-20250514",
-    "teacherModel": "anthropic/claude-opus-4-6",
-    "judgeModel": "anthropic/claude-sonnet-4-20250514",
-    "auto": "light",
-    "threads": 2,
-    "seed": 42
   }
 }
 ```
@@ -217,20 +208,6 @@ Optional browser UI.
 | `host` | Bind host |
 | `port` | Port |
 | `launch` | `manual` or `disabled` |
-
-### `gepa`
-
-DSPy GEPA optimizer defaults.
-
-| Field | Meaning |
-|---|---|
-| `useOptimized` | Load optimized prompt overrides |
-| `studentModel` | Proxy/evaluation model |
-| `teacherModel` | Reflection/mutation model |
-| `judgeModel` | LLM-as-judge model |
-| `auto` | Budget preset: `light`, `medium`, `heavy` |
-| `threads` | Parallel eval threads |
-| `seed` | Reproducibility seed |
 
 ## Diagnostics
 

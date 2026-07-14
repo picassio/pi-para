@@ -138,15 +138,6 @@ Tool API contracts and behavioral guidance are separated:
 - `src/tools.ts`: host registration, schemas, rendering, and execution only.
 - `src/context.ts`: injects the shared guidance once with wiki context so agents learn when to search, verify stale pages, and self-heal with `wiki_edit`.
 
-## GEPA optimizer
-
-GEPA lives in two layers:
-
-- `src/gepa/index.ts`: TypeScript target extraction/orchestration and CLI.
-- `scripts/gepa/`: Python/uv DSPy program, metric, dataset, custom LMs.
-
-It uses DSPy GEPA, not a custom TypeScript optimizer, and uses custom `dspy.BaseLM` providers for Anthropic OAuth/MiniMax/OpenRouter.
-
 ## Compatibility surfaces
 
 Kept temporarily:

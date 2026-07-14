@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.6.1] — 2026-07-14
+
+### Removed
+- **GEPA prompt optimizer removed entirely** (`pi-para gepa` CLI, `src/gepa/`, the Python/uv DSPy pipeline under `scripts/gepa/`, bundled optimized prompts, and the `gepa` config section). It added Python/uv overhead to the package for a rarely used offline workflow. Existing `gepa` keys in user config files are ignored harmlessly.
+
+### Fixed
+- **npm 0.6.0 tarball shipped without `dist/`** (the tag-triggered publish workflow ran `npm publish` on a fresh checkout without building), which broke `npx pi-para setup`, the PowerShell installer, and the `pi-para` bin on all platforms. The publish workflow now runs `npm ci` + typecheck + tests + build, packs a tarball, asserts `dist/cli.js`/`dist/index.js` exist inside it, smoke-runs `setup --yes --dry-run` from the packed tarball, and publishes that exact tarball.
+- Added a `prepack` script (`npm run build`) as a second safeguard so `npm pack`/`npm publish` can never produce a dist-less artifact again.
+- Documentation now uses the correct Pi command `pi install npm:pi-para` (bare `pi install pi-para` is interpreted as a local path by Pi 0.80+).
+
+### Security
+- npm publishing now runs in the `npm-publish` GitHub environment (required reviewer approval + `v*` tag deployment policy), and a repository ruleset restricts `v*` tag creation/update/deletion to repo admins.
+
 ## [0.6.0] — 2026-07-14
 
 ### Breaking

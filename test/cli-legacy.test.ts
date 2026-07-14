@@ -7,7 +7,7 @@ describe("legacy daemon CLI warnings", () => {
     expect(isLegacyDaemonCommand("process-recent")).toBe(true);
     expect(isLegacyDaemonCommand("legacy-status")).toBe(true);
     expect(isLegacyDaemonCommand("status")).toBe(false);
-    expect(isLegacyDaemonCommand("gepa")).toBe(false);
+    expect(isLegacyDaemonCommand("status")).toBe(false);
     expect(isLegacyDaemonCommand("tasks")).toBe(false);
     expect(isLegacyDaemonCommand(undefined)).toBe(false);
   });

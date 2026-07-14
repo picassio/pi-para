@@ -58,15 +58,6 @@ export interface ParaUserConfig {
     port: number;
     launch: "manual" | "disabled";
   };
-  gepa: {
-    useOptimized: boolean;
-    studentModel: string;
-    teacherModel: string;
-    judgeModel: string;
-    auto: "light" | "medium" | "heavy";
-    threads: number;
-    seed: number;
-  };
 }
 
 export interface LegacyParaRuntimeConfig {
@@ -81,7 +72,6 @@ export interface LegacyParaRuntimeConfig {
   searchGraphBoost: boolean;
   daemonModel: string | null;
   webWiki: { enabled: boolean; host: string; port: number };
-  gepa: ParaUserConfig["gepa"];
 }
 
 export interface LoadedParaConfig {
@@ -136,15 +126,6 @@ export function getDefaultUserConfig(homeDir?: string): ParaUserConfig {
       host: "127.0.0.1",
       port: 10973,
       launch: "manual",
-    },
-    gepa: {
-      useOptimized: false,
-      studentModel: "anthropic/claude-sonnet-4-20250514",
-      teacherModel: "anthropic/claude-opus-4-6",
-      judgeModel: "anthropic/claude-sonnet-4-20250514",
-      auto: "light",
-      threads: 2,
-      seed: 42,
     },
   };
 }
@@ -215,7 +196,6 @@ export function normalizeConfig(input: Partial<ParaUserConfig>, homeDir?: string
     qmd: { ...defaults.qmd, ...input.qmd },
     lint: { ...defaults.lint, ...input.lint },
     webWiki: { ...defaults.webWiki, ...input.webWiki },
-    gepa: { ...defaults.gepa, ...input.gepa },
   };
 }
 
@@ -295,10 +275,6 @@ export function migrateLegacyConfig(
     config.webWiki.port = numberOr(legacy.webWiki.port, defaults.webWiki.port);
   }
 
-  if (isRecord(legacy.gepa)) {
-    config.gepa = { ...config.gepa, ...legacy.gepa } as ParaUserConfig["gepa"];
-  }
-
   return config;
 }
 
@@ -321,7 +297,6 @@ export function toLegacyRuntimeConfig(config: ParaUserConfig): LegacyParaRuntime
       host: config.webWiki.host,
       port: config.webWiki.port,
     },
-    gepa: config.gepa,
   };
 }
 
