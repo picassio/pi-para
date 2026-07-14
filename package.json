@@ -1,6 +1,6 @@
 {
   "name": "pi-para",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "PARA Knowledge Base Extension for pi — persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
