@@ -131,6 +131,114 @@ describe("scheduler", () => {
     }
   });
 
+  it("qmd-embed skips when no embeddings are pending", async () => {
+    const file = await tempDb();
+    try {
+      let embedCalls = 0;
+      const store = {
+        getStatus: async () => ({ hasVectorIndex: true, needsEmbedding: 0 }),
+        embed: async () => { embedCalls++; return { docsProcessed: 0, chunksEmbedded: 0, errors: 0, durationMs: 0 }; },
+      };
+      const scheduler = new WikiScheduler({
+        wikiDir: file.dir,
+        dbPath: file.dbPath,
+        storeProvider: () => store as any,
+      });
+      scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed" });
+      expect(await scheduler.tick()).toBe(1);
+      expect(embedCalls).toBe(0);
+      expect(scheduler.state.list()[0]?.status).toBe("done");
+      scheduler.stop();
+    } finally {
+      await file.cleanup();
+    }
+  });
+
+  it("qmd-embed drains a pending backlog via store.embed", async () => {
+    const file = await tempDb();
+    try {
+      let embedCalls = 0;
+      const store = {
+        getStatus: async () => ({ hasVectorIndex: false, needsEmbedding: 5 }),
+        embed: async () => { embedCalls++; return { docsProcessed: 5, chunksEmbedded: 5, errors: 0, durationMs: 10 }; },
+      };
+      const scheduler = new WikiScheduler({
+        wikiDir: file.dir,
+        dbPath: file.dbPath,
+        storeProvider: () => store as any,
+      });
+      scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed" });
+      expect(await scheduler.tick()).toBe(1);
+      expect(embedCalls).toBe(1);
+      expect(scheduler.state.list()[0]?.status).toBe("done");
+      scheduler.stop();
+    } finally {
+      await file.cleanup();
+    }
+  });
+
+  it("qmd-embed records provider failures for retry instead of swallowing them", async () => {
+    const file = await tempDb();
+    try {
+      const store = {
+        getStatus: async () => ({ hasVectorIndex: false, needsEmbedding: 3 }),
+        embed: async () => ({ docsProcessed: 3, chunksEmbedded: 1, errors: 2, durationMs: 10 }),
+      };
+      const scheduler = new WikiScheduler({
+        wikiDir: file.dir,
+        dbPath: file.dbPath,
+        storeProvider: () => store as any,
+      });
+      scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed" });
+      expect(await scheduler.tick()).toBe(1);
+      const item = scheduler.state.list()[0];
+      expect(item?.status).toBe("queued"); // failed → retry with backoff
+      expect(item?.attempts).toBe(1);
+      scheduler.stop();
+    } finally {
+      await file.cleanup();
+    }
+  });
+
+  it("wiki-maintenance chains qmd-embed only when embedEnabled", async () => {
+    const file = await tempDb();
+    try {
+      const store = {
+        update: async () => {},
+        getStatus: async () => ({ hasVectorIndex: true, needsEmbedding: 0 }),
+        embed: async () => ({ docsProcessed: 0, chunksEmbedded: 0, errors: 0, durationMs: 0 }),
+      };
+      const scheduler = new WikiScheduler({
+        wikiDir: file.dir,
+        dbPath: file.dbPath,
+        storeProvider: () => store as any,
+        embedEnabled: true,
+      });
+      scheduler.enqueue("wiki-maintenance", {}, { dedupeKey: "wiki-maintenance" });
+      await scheduler.tick();
+      const tasks = scheduler.state.list().map((t) => t.taskName);
+      expect(tasks).toContain("qmd-embed");
+      scheduler.stop();
+
+      // Disabled: no chaining
+      resetSchedulersForTests();
+      const file2 = await tempDb();
+      const scheduler2 = new WikiScheduler({
+        wikiDir: file2.dir,
+        dbPath: file2.dbPath,
+        storeProvider: () => store as any,
+        embedEnabled: false,
+      });
+      scheduler2.enqueue("wiki-maintenance", {}, { dedupeKey: "wiki-maintenance" });
+      await scheduler2.tick();
+      expect(scheduler2.state.list().map((t) => t.taskName)).not.toContain("qmd-embed");
+      scheduler2.stop();
+      await file2.cleanup();
+    } finally {
+      await file.cleanup();
+    }
+  });
+
   it("marks unknown tasks failed", async () => {
     const file = await tempDb();
     try {

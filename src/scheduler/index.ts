@@ -16,6 +16,12 @@ export interface WikiSchedulerOptions {
   storeProvider?: () => QMDStore | null;
   markDirty?: () => void;
   handlers?: Record<string, SchedulerTaskHandler>;
+  /**
+   * When true, wiki-maintenance chains a deduplicated `qmd-embed` task after
+   * reindexing so new/changed pages get vector embeddings in the background.
+   * Default false so standalone/test schedulers keep BM25-only behavior.
+   */
+  embedEnabled?: boolean;
 }
 
 export class WikiScheduler {
@@ -31,6 +37,7 @@ export class WikiScheduler {
   private readonly storeProvider: () => QMDStore | null;
   private readonly markDirty: () => void;
   private handlers: Record<string, SchedulerTaskHandler>;
+  embedEnabled: boolean;
 
   constructor(opts: WikiSchedulerOptions) {
     this.wikiDir = opts.wikiDir;
@@ -40,8 +47,10 @@ export class WikiScheduler {
     this.enabled = opts.enabled ?? true;
     this.storeProvider = opts.storeProvider ?? (() => null);
     this.markDirty = opts.markDirty ?? (() => {});
+    this.embedEnabled = opts.embedEnabled ?? false;
     this.handlers = {
       "wiki-maintenance": async () => this.runWikiMaintenance(),
+      "qmd-embed": async () => this.runQmdEmbed(),
       ...(opts.handlers ?? {}),
     };
   }
@@ -129,6 +138,40 @@ export class WikiScheduler {
     } finally {
       releaseLease(this.state.db, leaseKey, this.holderId);
     }
+    // Chain background embedding so changed pages become vector-searchable.
+    // Runs as its own task (deduplicated) so reindex latency stays low and
+    // embedding failures are recorded/retried instead of breaking maintenance.
+    if (this.embedEnabled) {
+      this.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
+    }
+  }
+
+  /**
+   * Generate vector embeddings for documents QMD reports as pending.
+   * Skips fast when the backlog is empty. Throws when the embedding pass
+   * reports errors so the scheduler records the failure and retries with
+   * backoff — BM25 search keeps working regardless.
+   */
+  private async runQmdEmbed(): Promise<void> {
+    const store = this.storeProvider();
+    if (!store) return;
+
+    const status = await store.getStatus();
+    const pending = status.needsEmbedding ?? 0;
+    if (pending === 0) return;
+
+    const leaseKey = `qmd-embed:${this.wikiDir}`;
+    if (!acquireLease(this.state.db, leaseKey, this.holderId, { ttlMs: 15 * 60_000 })) return;
+    try {
+      const result = await store.embed();
+      if (result.errors > 0) {
+        throw new Error(
+          `qmd embed finished with ${result.errors} error(s) (${result.chunksEmbedded} chunk(s) embedded, ${pending} doc(s) were pending)`,
+        );
+      }
+    } finally {
+      releaseLease(this.state.db, leaseKey, this.holderId);
+    }
   }
 }
 
@@ -198,6 +241,27 @@ export function enqueueWikiMaintenance(
   (timer as { unref?: () => void }).unref?.();
   debounceTimers.set(key, timer);
   return null;
+}
+
+/**
+ * Enqueue a deduplicated background embedding pass (e.g. at session startup
+ * to drain a pre-existing needsEmbedding backlog). No-op scheduling cost when
+ * the backlog is empty — the task exits after one getStatus() call.
+ */
+export function enqueueQmdEmbed(
+  wikiDir: string,
+  store: QMDStore,
+  opts: { dbPath?: string } = {},
+): number {
+  const scheduler = getWikiScheduler({
+    wikiDir,
+    dbPath: opts.dbPath,
+    storeProvider: () => store,
+  });
+  scheduler.embedEnabled = true;
+  const id = scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
+  void scheduler.tick();
+  return id;
 }
 
 export function resetSchedulersForTests(): void {

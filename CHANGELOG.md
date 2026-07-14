@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+- **Embeddings were never generated automatically.** Pi startup opens the QMD store with `backgroundEmbed: false` (for fast print-mode exits) and nothing called `embedIfNeeded()` afterwards, so searches silently stayed BM25-only even with a correct remote embedding provider. A new deduplicated `qmd-embed` scheduler task (cross-process lease, gated by `qmd.embedEnabled`) now drains the `needsEmbedding` backlog at interactive session startup and is chained after every `wiki-maintenance` reindex. Provider failures are recorded and retried with backoff; BM25 keeps working regardless. Print mode is unaffected.
+- `pi-para doctor` now reports vector-index availability, pending embedding count, and the active embedding provider/model/endpoint host (never credentials).
+
 ## [0.6.1] — 2026-07-14
 
 ### Removed

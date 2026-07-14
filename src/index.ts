@@ -323,6 +323,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       // Capture handler registration is best-effort; manual capture remains available.
     }
 
+    const embedEnabled = loadedConfig.userConfig?.qmd.embedEnabled !== false;
     const schedulerEnabled = !isPrintModeProcess() && schedulerConfig?.enabled !== false;
     const scheduler = schedulerEnabled
       ? startWikiScheduler({
@@ -332,8 +333,22 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
         storeProvider: () => store,
         markDirty: () => markContextDirty(),
         handlers: schedulerHandlers,
+        embedEnabled,
       })
       : null;
+
+    // Drain any pre-existing embedding backlog in the background. Startup
+    // opens the store with backgroundEmbed:false (fast print-mode exits), so
+    // without this new pages stayed BM25-only until an explicit embed pass.
+    if (scheduler && embedEnabled && store) {
+      try {
+        scheduler.embedEnabled = true;
+        scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
+        void scheduler.tick();
+      } catch {
+        // Background embedding is best-effort; BM25 search works regardless.
+      }
+    }
 
     if (scheduler && startupCatchupEnabled) {
       try {

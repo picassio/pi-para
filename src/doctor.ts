@@ -201,8 +201,28 @@ async function checkQmd(wikiDir: string, config: ParaUserConfig, secretsPath: st
       paraConfig: { ...config, qmd: { ...config.qmd, embedEnabled: false } },
       secretsPath,
     });
+    let embedInfo = "";
+    let pending = 0;
+    let hasVectorIndex = false;
+    try {
+      const status = await store.getStatus();
+      hasVectorIndex = Boolean(status.hasVectorIndex);
+      pending = status.needsEmbedding ?? 0;
+      const profile = config.qmd.embedding;
+      const endpointHost = profile?.baseUrl ? new URL(profile.baseUrl).host : "default";
+      const adapter = profile ? `${profile.provider}/${profile.model ?? "model not set"} at ${endpointHost}` : "no embedding profile";
+      embedInfo = ` — vector index: ${hasVectorIndex ? "yes" : "no"}, pending embeddings: ${pending}, embed: ${adapter}`;
+    } catch {
+      // status probe is best-effort
+    }
     await closeStore(store);
-    return { name: "qmd-sdk", status: "ok", message: "store opened and updated with pi-para provider profiles" };
+    // Pending embeddings are expected transient state — the background
+    // qmd-embed scheduler task drains them while a Pi session is open — so
+    // report the numbers without failing the check.
+    const note = config.qmd.embedEnabled !== false && !hasVectorIndex && pending > 0
+      ? " (background qmd-embed task will process these while a Pi session is open)"
+      : "";
+    return { name: "qmd-sdk", status: "ok", message: `store opened and updated with pi-para provider profiles${embedInfo}${note}` };
   } catch (err) {
     return { name: "qmd-sdk", status: "error", message: err instanceof Error ? err.message : String(err), fixable: false };
   }
