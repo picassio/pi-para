@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.6.4] — 2026-07-14
+
+### Fixed
+- Background `qmd-embed` no longer attempts embedding when no real API provider is configured (inert-shim stores are detected and skipped). Previously this produced repeated `embed error: fetch failed` noise on Linux and ~21s TCP connect hangs per attempt on Windows for provider-less installs.
+- `pi-para status --json` now reports embedding state (`embedding.hasVectorIndex`, `embedding.needsEmbedding`) via a millisecond read-only probe of the QMD SQLite DB — no store open, status stays fast.
+
+### CI/Tests
+- Full Windows unit-test parity: fixed POSIX-biased tests (path splitting, permission-bit asserts, HOME-only overrides, SQLite handles held open across temp-dir cleanup, perf thresholds). The Windows CI job now runs the unit test suite as a blocking step.
+
 ## [0.6.3] — 2026-07-14
 
 ### Fixed
