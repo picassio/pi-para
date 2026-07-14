@@ -2,7 +2,29 @@
 
 ## Unreleased
 
+## [0.6.0] — 2026-07-14
+
+### Breaking
+- Node.js >= 22 is now required (`engines.node`), matching the embedded qmd-engine SDK. Installers reject Node 20/21.
+
 ### Changed
+- Upgraded `qmd-engine` to ^2.5.0 — `node-llama-cpp` is now an optional peer dependency upstream, so API-provider installs no longer pull the native llama.cpp toolchain.
+- Upgraded `better-sqlite3` to ^12.8.0 (prebuilt binaries for current Node majors, including Node 25 on Windows).
+- Wiki context is injected as a named `<system-reminder name="pi-para-wiki-context">` block with explicit wiki operating rules (search first, verify stale claims, persist decisions, prefer wiki_edit, no secrets).
+
+### Performance
+- `wiki_write` inline overhead cut from ~2.3s to ~0.6s on 500+ page wikis: single-pass parallel `rebuildIndex`, readdir-only slug scan for auto-linking, and QMD reindex deferred to the debounced background maintenance queue (same as `wiki_edit`).
+- `wiki_query` self-heals stale search state: on zero results it refreshes the QMD filesystem index once and retries before reporting no matches.
+
+### Fixed (Windows)
+- `scripts/install.ps1` requires Node >= 22, invokes `npx.cmd` explicitly (bare `npx` resolves to npx.ps1 and is blocked under restricted execution policies), and propagates `$LASTEXITCODE`.
+- `scripts/install.sh` minimum Node raised to 22.
+- Build/clean npm scripts are cross-platform (Node-based asset copy instead of POSIX `mkdir -p`/`cp`/`rm -rf`).
+- Fresh-install smoke test works on Windows (`fileURLToPath` for paths; sets both `HOME` and `USERPROFILE`).
+- `pi-para doctor` no longer emits a false secrets-permission warning on Windows/NTFS.
+- CI now includes a `windows-latest` job (typecheck, build, fresh-install smoke).
+
+### Changed (docs/infra)
 - Primary setup/runtime documentation now targets the no-daemon in-process scheduler architecture.
 - Added cross-platform install wrappers in `scripts/install.sh` and `scripts/install.ps1`.
 - Deprecated legacy daemon setup artifacts: `setup.sh` now delegates to the current setup flow, and `pi-para-daemon.service` / `DAEMON-PLAN.md` are marked legacy.
