@@ -120,6 +120,94 @@ export function disableRerank(config: ParaUserConfig): void {
   config.qmd.rerank = null;
 }
 
+// -- Provider presets ---------------------------------------------------------
+
+/** Known API providers selectable in /wiki-settings (baseUrl + format prefilled). */
+export interface ProviderPreset {
+  id: string;
+  label: string;
+  baseUrl: string;
+  apiFormat: "openai" | "anthropic";
+  defaultEmbedModel?: string;
+  defaultRerankModel?: string;
+}
+
+export const PROVIDER_PRESETS: ProviderPreset[] = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    apiFormat: "openai",
+    defaultEmbedModel: "text-embedding-3-small",
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiFormat: "openai",
+    defaultEmbedModel: "openai/text-embedding-3-small",
+  },
+  {
+    id: "gemini",
+    label: "Google Gemini (OpenAI-compatible)",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    apiFormat: "openai",
+    defaultEmbedModel: "text-embedding-004",
+  },
+  {
+    id: "mistral",
+    label: "Mistral",
+    baseUrl: "https://api.mistral.ai/v1",
+    apiFormat: "openai",
+    defaultEmbedModel: "mistral-embed",
+  },
+  {
+    id: "voyage",
+    label: "Voyage AI",
+    baseUrl: "https://api.voyageai.com/v1",
+    apiFormat: "openai",
+    defaultEmbedModel: "voyage-3-lite",
+    defaultRerankModel: "rerank-2-lite",
+  },
+  {
+    id: "jina",
+    label: "Jina AI",
+    baseUrl: "https://api.jina.ai/v1",
+    apiFormat: "openai",
+    defaultEmbedModel: "jina-embeddings-v3",
+    defaultRerankModel: "jina-reranker-v2-base-multilingual",
+  },
+  {
+    id: "ollama",
+    label: "Ollama (local server)",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    apiFormat: "openai",
+    defaultEmbedModel: "nomic-embed-text",
+  },
+];
+
+export function findProviderPreset(id: string): ProviderPreset | undefined {
+  return PROVIDER_PRESETS.find((p) => p.id === id);
+}
+
+/**
+ * Apply a provider preset to an embedding/rerank profile: sets provider,
+ * baseUrl, apiFormat, and the preset's default model for the profile kind.
+ * Leaves credentialRef and dims untouched (dims must match any existing
+ * vector index; credential wiring is a separate explicit step).
+ */
+export function applyProviderPreset(
+  profile: ProviderCredentialRef,
+  preset: ProviderPreset,
+  kind: "embedding" | "rerank",
+): void {
+  profile.provider = preset.id;
+  profile.baseUrl = preset.baseUrl;
+  profile.apiFormat = preset.apiFormat;
+  const model = kind === "embedding" ? preset.defaultEmbedModel : preset.defaultRerankModel;
+  if (model) profile.model = model;
+}
+
 function parsePositiveInteger(value: string, fallback: number): number {
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;

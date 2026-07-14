@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { getDefaultUserConfig } from "../src/config.js";
 import {
+  applyProviderPreset,
   disableRerank,
   ensureEmbeddingProfile,
+  findProviderPreset,
+  PROVIDER_PRESETS,
   ensureRerankProfile,
   modelSelectionLabel,
   providerProfileLabel,
@@ -69,5 +72,44 @@ describe("settings", () => {
     expect(rerank.provider).toBe("jina");
     disableRerank(config);
     expect(config.qmd.rerank).toBeNull();
+  });
+
+  it("exposes provider presets with baseUrl and api format", () => {
+    const ids = PROVIDER_PRESETS.map((p) => p.id);
+    expect(ids).toContain("openai");
+    expect(ids).toContain("openrouter");
+    for (const preset of PROVIDER_PRESETS) {
+      expect(preset.baseUrl).toMatch(/^https?:\/\//);
+      expect(["openai", "anthropic"]).toContain(preset.apiFormat);
+    }
+    expect(findProviderPreset("openrouter")?.baseUrl).toBe("https://openrouter.ai/api/v1");
+    expect(findProviderPreset("nope")).toBeUndefined();
+  });
+
+  it("applies a provider preset without touching credentialRef or dims", () => {
+    const config = getDefaultUserConfig("/tmp/home");
+    const embedding = ensureEmbeddingProfile(config);
+    setProviderDims(embedding, "768");
+    setProviderProfileField(embedding, "credentialRef", "secret:embedding");
+
+    applyProviderPreset(embedding, findProviderPreset("openrouter")!, "embedding");
+    expect(embedding).toMatchObject({
+      provider: "openrouter",
+      baseUrl: "https://openrouter.ai/api/v1",
+      apiFormat: "openai",
+      model: "openai/text-embedding-3-small",
+      dims: 768,
+      credentialRef: "secret:embedding",
+    });
+
+    // Rerank preset without a default rerank model keeps the existing model
+    const rerank = ensureRerankProfile(config);
+    const before = rerank.model;
+    applyProviderPreset(rerank, findProviderPreset("openai")!, "rerank");
+    expect(rerank.provider).toBe("openai");
+    expect(rerank.model).toBe(before);
+
+    applyProviderPreset(rerank, findProviderPreset("voyage")!, "rerank");
+    expect(rerank.model).toBe("rerank-2-lite");
   });
 });

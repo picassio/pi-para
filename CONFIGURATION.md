@@ -120,6 +120,11 @@ pi-para providers set-secret embedding <key>
 pi-para providers set-secret rerank <key>
 ```
 
+Or interactively inside Pi via `/wiki-settings`:
+
+- `[Secrets]` — lists stored keys (redacted), adds/updates/removes API keys. `~/.pi/para/secrets.json` is created automatically (0600) on first save.
+- `[Embedding]` / `[Rerank]` → `Provider` — pick from presets (OpenAI, OpenRouter, Gemini, Mistral, Voyage, Jina, Ollama) to prefill base URL/API format/default model, then optionally paste the API key in the same flow; or choose `custom` for a manual provider id + base URL.
+
 Inspect without leaking values:
 
 ```bash

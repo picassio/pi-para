@@ -652,9 +652,12 @@ ${goal} — verified and complete.
         disableRerank,
         setProviderProfileField,
         setProviderDims,
+        PROVIDER_PRESETS,
+        applyProviderPreset,
       } = await import("./settings.js");
       const { listSchedulerTasks } = await import("./scheduler/controls.js");
-      const { setSecret } = await import("./credentials.js");
+      const { setSecret, removeSecret, readSecretStore, redactCredential } = await import("./credentials.js");
+      const { existsSync } = await import("node:fs");
 
       const loaded = await loadParaConfig({ migrate: true });
       const config = loaded.config;
@@ -666,6 +669,12 @@ ${goal} — verified and complete.
         const queuedTasks = listSchedulerTasks(wikiDir, { status: "queued" }).length;
         const failedTasks = listSchedulerTasks(wikiDir, { status: "failed" }).length;
 
+        const secretStore = await readSecretStore(loaded.paths.secretsPath).catch(() => ({ version: 1 as const, secrets: {} }));
+        const secretCount = Object.keys(secretStore.secrets).length;
+        const secretsLabel = existsSync(loaded.paths.secretsPath)
+          ? `${secretCount} secret(s) in secrets.json`
+          : "secrets.json not created yet";
+
         const choice = await ctx.ui.select("Wiki Settings", [
           `[Context] Max tokens: ${config.context.maxTokens}`,
           `[Search]  Limit: ${config.context.searchLimit}, Graph boost: ${config.context.searchGraphBoost}`,
@@ -674,6 +683,7 @@ ${goal} — verified and complete.
           `[WebWiki] ${config.webWiki.enabled ? `Enabled at http://${config.webWiki.host}:${config.webWiki.port}` : "Disabled"}`,
           `[Embedding] ${providerProfileLabel(config.qmd.embedding)}`,
           `[Rerank]  ${providerProfileLabel(config.qmd.rerank)}`,
+          `[Secrets] ${secretsLabel}`,
           `---`,
           `[Status]  Scope: ${scope.name} | Pages: ${pageCount} | qmd: SDK | Scheduler: ${queuedTasks} queued, ${failedTasks} failed`,
         ]);
@@ -781,6 +791,52 @@ ${goal} — verified and complete.
             const val = await ctx.ui.input("Port:", String(config.webWiki.port));
             if (val) { setWebWikiPort(config, val); await persist(); }
           }
+        } else if (choice.startsWith("[Secrets]")) {
+          const entries = Object.entries(secretStore.secrets);
+          const sub = await ctx.ui.select(
+            `Secrets — ${loaded.paths.secretsPath}${existsSync(loaded.paths.secretsPath) ? "" : " (will be created on first save)"}`,
+            [
+              ...entries.map(([name, value]) => `${name}: ${redactCredential(value)}`),
+              "Add/update API key",
+              ...(entries.length > 0 ? ["Remove a secret"] : []),
+            ],
+          );
+          if (sub === "Add/update API key") {
+            const name = await ctx.ui.input("Secret name (e.g. embedding, rerank, capture):", "embedding");
+            if (name?.trim()) {
+              const value = await ctx.ui.input(`API key for "${name.trim()}" (never stored in wiki git):`, "");
+              if (value) {
+                const created = !existsSync(loaded.paths.secretsPath);
+                await setSecret(name.trim(), value, loaded.paths.secretsPath);
+                ctx.ui.notify(
+                  created
+                    ? `Created ${loaded.paths.secretsPath} (0600) and stored secret:${name.trim()}.`
+                    : `Stored secret:${name.trim()}.`,
+                  "info",
+                );
+              }
+            }
+          } else if (sub === "Remove a secret") {
+            const target = await ctx.ui.select("Remove which secret?", entries.map(([name]) => name));
+            if (target) {
+              await removeSecret(target, loaded.paths.secretsPath);
+              ctx.ui.notify(`Removed secret:${target}.`, "info");
+            }
+          } else if (sub && sub.includes(": ")) {
+            // Selected an existing secret — offer update/remove
+            const name = sub.split(": ")[0];
+            const action = await ctx.ui.select(`secret:${name}`, ["Update value", "Remove"]);
+            if (action === "Update value") {
+              const value = await ctx.ui.input(`New API key for "${name}":`, "");
+              if (value) {
+                await setSecret(name, value, loaded.paths.secretsPath);
+                ctx.ui.notify(`Updated secret:${name}.`, "info");
+              }
+            } else if (action === "Remove") {
+              await removeSecret(name, loaded.paths.secretsPath);
+              ctx.ui.notify(`Removed secret:${name}.`, "info");
+            }
+          }
         } else if (choice.startsWith("[Embedding]") || choice.startsWith("[Rerank]")) {
           const isEmbedding = choice.startsWith("[Embedding]");
           const profile = isEmbedding ? ensureEmbeddingProfile(config) : ensureRerankProfile(config);
@@ -796,8 +852,27 @@ ${goal} — verified and complete.
           ]);
 
           if (sub?.startsWith("Provider")) {
-            const val = await ctx.ui.input("Provider id:", profile.provider);
-            if (val) setProviderProfileField(profile, "provider", val);
+            const kind = isEmbedding ? "embedding" : "rerank";
+            const presetLabels = PROVIDER_PRESETS.map((p) => `${p.label} — ${p.baseUrl}`);
+            const pick = await ctx.ui.select(`Select ${kind} provider`, [...presetLabels, "custom (enter manually)"]);
+            if (pick === "custom (enter manually)") {
+              const val = await ctx.ui.input("Provider id:", profile.provider);
+              if (val) setProviderProfileField(profile, "provider", val);
+              const url = await ctx.ui.input("Base URL:", profile.baseUrl ?? "");
+              if (url) setProviderProfileField(profile, "baseUrl", url);
+            } else if (pick) {
+              const preset = PROVIDER_PRESETS[presetLabels.indexOf(pick)];
+              applyProviderPreset(profile, preset, kind as "embedding" | "rerank");
+              ctx.ui.notify(`Set ${kind} provider = ${preset.label} (${preset.baseUrl})`, "info");
+              // Offer API key entry right away — stores in ~/.pi/para/secrets.json
+              // (file is created on first write with 0600 permissions).
+              const key = await ctx.ui.input(`${preset.label} API key (empty to skip; stored as secret:${kind}):`, "");
+              if (key) {
+                await setSecret(kind, key, loaded.paths.secretsPath);
+                setProviderProfileField(profile, "credentialRef", `secret:${kind}`);
+                ctx.ui.notify(`Stored secret:${kind} and set credentialRef.`, "info");
+              }
+            }
           } else if (sub?.startsWith("Base URL")) {
             const val = await ctx.ui.input("Base URL:", profile.baseUrl ?? "");
             if (val) setProviderProfileField(profile, "baseUrl", val);
