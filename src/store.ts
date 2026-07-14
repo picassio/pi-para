@@ -73,6 +73,21 @@ const RAW_CONTEXT = "Immutable source material: articles, documents, notes. Not 
 
 const pendingEmbeds = new WeakMap<QMDStore, Promise<void>>();
 
+// -- Inert-provider tracking ---------------------------------------------------
+
+/** Stores opened with the NO_LOCAL_PROVIDERS shim (no real API provider). */
+const inertProviderStores = new WeakSet<QMDStore>();
+
+/**
+ * Whether the store was opened with a real (configured) embedding provider.
+ * When false, embedding calls would hit the inert shim endpoint and fail —
+ * slowly on platforms where localhost connects to closed ports time out
+ * (Windows firewall drops) — so background embedding must be skipped.
+ */
+export function storeHasApiProviders(store: QMDStore): boolean {
+  return !inertProviderStores.has(store);
+}
+
 // -- qmd provider config -----------------------------------------------------
 
 /**
@@ -132,6 +147,7 @@ export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): P
       })
     : loadQmdProviders();
   const providers = configuredProviders ?? NO_LOCAL_PROVIDERS;
+  const usingInertShim = !configuredProviders;
 
   const store = await createStore({
     dbPath: join(wikiDir, ".qmd.sqlite"),
@@ -151,6 +167,8 @@ export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): P
       providers: providers as CollectionConfig["providers"],
     },
   });
+
+  if (usingInertShim) inertProviderStores.add(store);
 
   // Add PARA category contexts to the wiki collection
   for (const [prefix, description] of Object.entries(PARA_CONTEXTS)) {

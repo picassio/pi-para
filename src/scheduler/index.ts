@@ -1,7 +1,7 @@
 import type { QMDStore } from "qmd-engine";
 import { randomUUID } from "node:crypto";
 import { gitCommit, rebuildIndex } from "../wiki.js";
-import { reindex } from "../store.js";
+import { reindex, storeHasApiProviders } from "../store.js";
 import { getParaPaths } from "../paths.js";
 import { acquireLease, releaseLease } from "./leases.js";
 import { SchedulerStateDB, type QueueItem } from "./state.js";
@@ -155,6 +155,9 @@ export class WikiScheduler {
   private async runQmdEmbed(): Promise<void> {
     const store = this.storeProvider();
     if (!store) return;
+    // No real embedding provider configured — embed calls would hit the inert
+    // shim endpoint (slow TCP timeouts on Windows) and always fail. Skip.
+    if (!storeHasApiProviders(store)) return;
 
     const status = await store.getStatus();
     const pending = status.needsEmbedding ?? 0;

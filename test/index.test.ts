@@ -23,13 +23,18 @@ interface MockPi {
   events: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
 }
 
+/** Mock pi instances created in the current test — afterEach runs their
+ * session_shutdown handlers so stores/schedulers release SQLite handles
+ * before temp-dir removal (Windows EBUSY). */
+const activeMockPis: MockPi[] = [];
+
 function createMockPi(): MockPi {
   const handlers: MockPi["handlers"] = {};
   const tools: MockPi["tools"] = [];
   const commands: MockPi["commands"] = {};
   const entries: MockPi["entries"] = [];
 
-  return {
+  const mock = {
     handlers,
     tools,
     commands,
@@ -54,6 +59,8 @@ function createMockPi(): MockPi {
       emit: vi.fn(),
     },
   };
+  activeMockPis.push(mock);
+  return mock;
 }
 
 function createMockCtx(
@@ -103,8 +110,16 @@ afterEach(async () => {
   process.env.HOME = originalHome;
   if (originalUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = originalUserProfile;
-  // Close any scheduler SQLite handles opened by session_start before rm
-  // (Windows cannot unlink open files).
+  // Release SQLite/store handles opened by session_start before rm
+  // (Windows cannot unlink open files): run each mock pi's session_shutdown,
+  // then stop any schedulers.
+  for (const mock of activeMockPis.splice(0)) {
+    for (const handler of mock.handlers["session_shutdown"] ?? []) {
+      try {
+        await handler({ reason: "quit" }, createMockCtx());
+      } catch { /* best-effort cleanup */ }
+    }
+  }
   const { resetSchedulersForTests } = await import("../src/scheduler/index.js");
   resetSchedulersForTests();
   await rm(configDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
