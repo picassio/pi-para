@@ -6,8 +6,9 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/picassio/pi-para/main/scripts/install.sh | bash
 
 PACKAGE="pi-para"
-MIN_NODE_MAJOR=20
-MIN_NODE_MINOR=12
+# qmd-engine (embedded search SDK) requires Node >= 22.
+MIN_NODE_MAJOR=22
+MIN_NODE_MINOR=0
 
 check_node_version() {
   if ! command -v node >/dev/null 2>&1; then

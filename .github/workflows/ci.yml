@@ -44,3 +44,36 @@ jobs:
 
       - name: Fresh-install smoke
         run: npm run smoke:install
+
+  windows:
+    name: Windows typecheck, build, smoke
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      - name: Fresh-install smoke
+        run: npm run smoke:install
+
+      # Full unit-test parity on Windows is still in progress (some tests
+      # assume POSIX permissions/paths). Run them non-blocking for signal.
+      - name: Unit tests (non-blocking)
+        run: npm test
+        continue-on-error: true

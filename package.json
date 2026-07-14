@@ -144,8 +144,8 @@
     "skills"
   ],
   "scripts": {
-    "clean": "rm -rf dist",
-    "build": "tsc -p tsconfig.json && mkdir -p dist/webui/client/dist && cp src/webui/client/dist/index.html dist/webui/client/dist/index.html && mkdir -p dist/gepa/optimized && cp -r src/gepa/optimized/*.txt dist/gepa/optimized/ 2>/dev/null || true",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.json && node scripts/build-assets.mjs",
     "check": "tsc --noEmit",
     "test": "vitest --run",
     "test:coverage": "vitest --run --coverage",
@@ -155,9 +155,12 @@
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "better-sqlite3": "^11.9.1",
-    "qmd-engine": "^2.3.3",
+    "better-sqlite3": "^12.11.1",
+    "qmd-engine": "^2.5.0",
     "yaml": "^2.8.2"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "^0.80.2",

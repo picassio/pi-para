@@ -3,12 +3,13 @@
 import { mkdtemp, rm, access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const root = resolve(new URL("..", import.meta.url).pathname);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "dist", "cli.js");
 
 async function main() {
@@ -17,7 +18,8 @@ async function main() {
   });
 
   const home = await mkdtemp(join(tmpdir(), "pi-para-smoke-"));
-  const env = { ...process.env, HOME: home };
+  // os.homedir() reads HOME on POSIX and USERPROFILE on Windows — set both.
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
 
   try {
     await run([cli, "setup", "--yes", "--local", root], env);

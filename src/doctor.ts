@@ -101,6 +101,11 @@ async function checkSecrets(secretsPath: string): Promise<DoctorCheck> {
   try {
     const store = await readSecretStore(secretsPath);
     if (!existsSync(secretsPath)) return { name: "secrets", status: "ok", message: "no local pi-para secrets configured" };
+    // POSIX mode bits are meaningless on Windows/NTFS — stat reports 666 and
+    // chmod is a no-op, so a permissions warning there is a false positive.
+    if (process.platform === "win32") {
+      return { name: "secrets", status: "ok", message: `${Object.keys(store.secrets).length} local secret(s) (POSIX permission check skipped on Windows)` };
+    }
     const mode = statSync(secretsPath).mode & 0o777;
     if (mode & 0o077) {
       return { name: "secrets", status: "warn", message: `${secretsPath} permissions are too open (${mode.toString(8)})`, fixable: true };
