@@ -31,7 +31,10 @@ describe("credentials", () => {
       expect(await readSecretStore(file.path)).toEqual({ version: 1, secrets: {} });
       await setSecret("openai-embedding", "sk-test-secret", file.path);
       expect(existsSync(file.path)).toBe(true);
-      expect((statSync(file.path).mode & 0o777).toString(8)).toBe("600");
+      if (process.platform !== "win32") {
+        // POSIX mode bits are meaningless on Windows/NTFS (always 666)
+        expect((statSync(file.path).mode & 0o777).toString(8)).toBe("600");
+      }
       expect(await resolveCredentialRef("secret:openai-embedding", { secretsPath: file.path })).toMatchObject({
         ok: true,
         source: "secret",

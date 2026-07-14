@@ -37,7 +37,8 @@ describe("doctor", () => {
     }
   });
 
-  it("warns when local secrets permissions are too open", async () => {
+  // Doctor deliberately skips POSIX permission checks on Windows/NTFS.
+  it.skipIf(process.platform === "win32")("warns when local secrets permissions are too open", async () => {
     const home = await tempHome();
     try {
       const secretsPath = join(home.dir, ".pi", "para", "secrets.json");

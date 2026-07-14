@@ -36,7 +36,18 @@ describe("status", () => {
         },
         body: "## Topic\n\nTest.",
       });
-      await writeFile(join(config.wiki.dir, ".qmd.sqlite"), "", "utf-8");
+      // Simulate a real QMD DB shape for the read-only embedding probe
+      {
+        const { default: Database } = await import("better-sqlite3");
+        const qmdDb = new Database(join(config.wiki.dir, ".qmd.sqlite"));
+        qmdDb.exec(`
+          CREATE TABLE documents (hash TEXT, active INTEGER);
+          CREATE TABLE content_vectors (hash TEXT, seq INTEGER);
+          INSERT INTO documents VALUES ('h1', 1), ('h2', 1), ('h3', 0);
+          INSERT INTO content_vectors VALUES ('h1', 0);
+        `);
+        qmdDb.close();
+      }
 
       const schedulerDb = new SchedulerStateDB(join(config.wiki.dir, ".pi-para.sqlite"));
       schedulerDb.enqueue("capture-session", { sessionFile: "a.jsonl" });
@@ -49,6 +60,9 @@ describe("status", () => {
       expect(status.pages.byCategory.resources).toBe(1);
       expect(status.scheduler.queued).toBe(1);
       expect(status.qmdDbExists).toBe(true);
+      // h1 embedded, h2 active+missing vector → pending 1; h3 inactive → ignored
+      expect(status.embedding).toEqual({ hasVectorIndex: true, needsEmbedding: 1 });
+      expect(formatted).toContain("Embeddings: vector index yes, pending 1");
       expect(formatted).toContain("pi-para status");
       expect(formatted).toContain("Pages: 1 total");
       expect(formatted).toContain("Scheduler: 1 queued");

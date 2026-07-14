@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import Database from "better-sqlite3";
 import { loadParaConfig } from "./config.js";
 import { getParaPaths } from "./paths.js";
 import { listPages, type ParaCategory } from "./wiki.js";
@@ -20,6 +21,8 @@ export interface PiParaStatusResult {
   };
   scheduler: Record<QueueStatus, number>;
   qmdDbExists: boolean;
+  /** Read-only probe of the QMD DB (null when the DB doesn't exist/can't be read). */
+  embedding: { hasVectorIndex: boolean; needsEmbedding: number } | null;
   warnings: string[];
 }
 
@@ -46,6 +49,7 @@ export async function getPiParaStatus(options: PiParaStatusOptions = {}): Promis
     pages,
     scheduler,
     qmdDbExists: existsSync(paths.qmdDbPath),
+    embedding: getQmdEmbeddingStats(paths.qmdDbPath, warnings),
     warnings,
   };
 }
@@ -58,6 +62,9 @@ export function formatPiParaStatus(status: PiParaStatusResult): string {
     `  Pages: ${status.pages.total} total (${formatCategoryCounts(status.pages.byCategory)})`,
     `  Scheduler: ${status.scheduler.queued} queued, ${status.scheduler.running} running, ${status.scheduler.failed} failed`,
     `  QMD SDK DB: ${status.qmdDbExists ? status.qmdDbPath : "not initialized"}`,
+    ...(status.embedding
+      ? [`  Embeddings: vector index ${status.embedding.hasVectorIndex ? "yes" : "no"}, pending ${status.embedding.needsEmbedding}`]
+      : []),
   ];
 
   if (status.warnings.length > 0) {
@@ -108,6 +115,43 @@ function getSchedulerCounts(dbPath: string, warnings: string[]): Record<QueueSta
   }
 
   return counts;
+}
+
+/**
+ * Cheap read-only probe of the QMD SQLite DB for embedding state — avoids
+ * opening the full store (~1s). Mirrors qmd-engine's getHashesNeedingEmbedding
+ * query (documents ⋈ content_vectors), which is stable across qmd 2.x.
+ */
+function getQmdEmbeddingStats(
+  dbPath: string,
+  warnings: string[],
+): { hasVectorIndex: boolean; needsEmbedding: number } | null {
+  if (!existsSync(dbPath)) return null;
+  try {
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      const tables = new Set(
+        (db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as Array<{ name: string }>)
+          .map((row) => row.name),
+      );
+      if (!tables.has("documents") || !tables.has("content_vectors")) {
+        return { hasVectorIndex: false, needsEmbedding: 0 };
+      }
+      const vectors = db.prepare("SELECT COUNT(*) AS c FROM content_vectors").get() as { c: number };
+      const pending = db.prepare(`
+        SELECT COUNT(DISTINCT d.hash) AS c
+        FROM documents d
+        LEFT JOIN content_vectors v ON d.hash = v.hash AND v.seq = 0
+        WHERE d.active = 1 AND v.hash IS NULL
+      `).get() as { c: number };
+      return { hasVectorIndex: vectors.c > 0, needsEmbedding: pending.c };
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    warnings.push(`could not read QMD embedding stats: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 function formatCategoryCounts(counts: Record<ParaCategory, number>): string {

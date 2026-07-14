@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   detectScope,
@@ -243,7 +243,7 @@ describe("detectScope", () => {
 
     const scope = await detectScope(dir);
     // The git root is dir itself, so name = basename(dir)
-    const expected = dir.split("/").pop()!;
+    const expected = basename(dir);
     expect(scope.name).toBe(expected);
     expect(scope.source).toBe("git-root");
     expect(scope.include).toEqual([expected]);
@@ -254,7 +254,7 @@ describe("detectScope", () => {
     // No git init — just a plain directory
 
     const scope = await detectScope(dir);
-    const expected = dir.split("/").pop()!;
+    const expected = basename(dir);
     expect(scope.name).toBe(expected);
     expect(scope.source).toBe("dirname");
     expect(scope.include).toEqual([expected]);

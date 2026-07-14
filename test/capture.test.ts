@@ -8,6 +8,7 @@ import type { ProjectScope } from "../src/scope.js";
 import { openStore, closeStore } from "../src/store.js";
 import type { QMDStore } from "../src/store.js";
 import { readSessionDigests } from "../src/raw.js";
+import { resetSchedulersForTests } from "../src/scheduler/index.js";
 
 // We need to mock the Agent class since we can't make real LLM calls in tests.
 // The Agent is imported inside capture.ts — we mock the entire module.
@@ -226,11 +227,12 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  resetSchedulersForTests(); // close scheduler SQLite before rm (Windows EBUSY)
   if (store) {
     await closeStore(store);
     store = null;
   }
-  await rm(wikiDir, { recursive: true, force: true });
+  await rm(wikiDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }, 30_000);
 
 // -- Session messages for testing --------------------------------------------

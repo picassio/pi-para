@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { resetSchedulersForTests } from "../src/scheduler/index.js";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initWiki, writePage, readPage, readIndex, listPages } from "../src/wiki.js";
@@ -79,13 +80,16 @@ describe("tools", () => {
   }, 30_000);
 
   afterEach(async () => {
+    // Close the maintenance scheduler's SQLite before removing the temp dir —
+    // Windows cannot unlink open files (EBUSY).
+    resetSchedulersForTests();
     if (store) {
       try {
         (store as any).internal?.close();
       } catch { /* ignore */ }
       store = null;
     }
-    await rm(wikiDir, { recursive: true, force: true });
+    await rm(wikiDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }, 10_000);
 
   describe("createStandaloneTools", () => {

@@ -34,7 +34,8 @@ describe("repair", () => {
     }
   });
 
-  it("fixes secret permissions only when needed", async () => {
+  // POSIX chmod is a no-op on Windows/NTFS — nothing to fix or verify there.
+  it.skipIf(process.platform === "win32")("fixes secret permissions only when needed", async () => {
     const tmp = await tempDir();
     try {
       const path = join(tmp.dir, "secrets.json");

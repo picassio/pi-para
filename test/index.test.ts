@@ -85,19 +85,29 @@ function createMockCtx(
 let configDir: string;
 let wikiDir: string;
 let originalHome: string | undefined;
+let originalUserProfile: string | undefined;
 
 beforeEach(async () => {
   const tmpBase = await mkdtemp(join(tmpdir(), "pi-para-index-"));
   configDir = tmpBase;
   wikiDir = join(configDir, ".pi", "wiki");
-  // Set HOME so loadConfig reads from our temp directory
+  // Set HOME and USERPROFILE so loadConfig reads from our temp directory —
+  // os.homedir() uses HOME on POSIX and USERPROFILE on Windows.
   originalHome = process.env.HOME;
+  originalUserProfile = process.env.USERPROFILE;
   process.env.HOME = configDir;
+  process.env.USERPROFILE = configDir;
 });
 
 afterEach(async () => {
   process.env.HOME = originalHome;
-  await rm(configDir, { recursive: true, force: true });
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
+  // Close any scheduler SQLite handles opened by session_start before rm
+  // (Windows cannot unlink open files).
+  const { resetSchedulersForTests } = await import("../src/scheduler/index.js");
+  resetSchedulersForTests();
+  await rm(configDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 // -- Tests -------------------------------------------------------------------
