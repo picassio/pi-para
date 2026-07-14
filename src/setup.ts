@@ -79,7 +79,7 @@ export function formatSetupResult(result: SetupResult): string {
   const lines = [`pi-para setup ${result.dryRun ? "dry run " : ""}complete.`];
   for (const change of result.changes) lines.push(`  ✓ ${change}`);
   for (const warning of result.warnings) lines.push(`  ⚠ ${warning}`);
-  lines.push("", "Next: restart open Pi sessions, then run /wiki or pi-para doctor.");
+  lines.push("", "Next: restart open Pi sessions, then run /wiki or `npx -y pi-para@latest doctor`.");
   return lines.join("\n");
 }
 

@@ -19,14 +19,16 @@ Then restart Pi.
 Run diagnostics:
 
 ```bash
-pi-para doctor
+npx -y pi-para@latest doctor
 ```
 
 If needed, apply safe repairs:
 
 ```bash
-pi-para doctor --fix
+npx -y pi-para@latest doctor --fix
 ```
+
+> `pi install npm:pi-para` and the `npx` setup flow do not put a global `pi-para` command on your `PATH`. Use `npx -y pi-para@latest <command>`, or `npm install -g pi-para` if you prefer the bare `pi-para` form used in the examples below.
 
 ## npx setup flow
 

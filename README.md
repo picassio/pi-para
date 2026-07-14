@@ -26,11 +26,13 @@ irm https://raw.githubusercontent.com/picassio/pi-para/main/scripts/install.ps1 
 
 Restart Pi after installing or changing extension registration.
 
-Then run:
+Then run diagnostics:
 
 ```bash
-pi-para doctor
+npx -y pi-para@latest doctor
 ```
+
+> The `pi-para` command is only on your `PATH` after a global install (`npm install -g pi-para`). After `pi install npm:pi-para` or an `npx` setup, invoke the CLI with `npx -y pi-para@latest <command>` instead.
 
 ## What pi-para creates
 
@@ -66,6 +68,8 @@ Legacy files such as `~/.pi/wiki/config.json`, `~/.pi/wiki/.daemon.sqlite`, and 
 | `/wiki-project <name> <goal>` | Create/archive project pages |
 
 ### CLI
+
+Run these as `pi-para <command>` (global install) or `npx -y pi-para@latest <command>`:
 
 ```bash
 pi-para setup [--yes] [--dry-run] [--local PATH]
