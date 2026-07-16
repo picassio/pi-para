@@ -860,13 +860,23 @@ function createMoveExecute(
 
 // -- Factory: wiki_lint execute ----------------------------------------------
 
-function createLintExecute(wikiDir: string) {
+function createLintExecute(
+  wikiDir: string,
+  store: QMDStore,
+  markDirty: () => void,
+  getLintConfig?: () => { autoFix: boolean; staleDays: number },
+) {
   return async (
     params: { autoFix?: boolean },
   ): Promise<AgentToolResult<WikiLintDetails>> => {
+    const configured = getLintConfig?.();
     const report = await lintWiki(wikiDir, {
-      autoFix: params.autoFix ?? true,
+      autoFix: params.autoFix ?? configured?.autoFix ?? true,
+      staleDays: configured?.staleDays ?? 90,
     });
+    if (report.fixed.length > 0) {
+      scheduleWikiMaintenance(wikiDir, store, markDirty);
+    }
 
     const { issues, fixed, stats } = report;
 
@@ -1057,6 +1067,7 @@ export function registerTools(
   getScope: () => ProjectScope,
   markDirty: () => void,
   getGraphBoost?: () => boolean,
+  getLintConfig?: () => { autoFix: boolean; staleDays: number },
 ): void {
   const ingestExec = createIngestExecute(wikiDir, store, getScope);
   const queryExec = createQueryExecute(wikiDir, store, getScope, getGraphBoost);
@@ -1064,7 +1075,7 @@ export function registerTools(
   const editExec = createEditExecute(wikiDir, store, markDirty);
   const readExec = createReadExecute(wikiDir);
   const moveExec = createMoveExecute(wikiDir, store, markDirty);
-  const lintExec = createLintExecute(wikiDir);
+  const lintExec = createLintExecute(wikiDir, store, markDirty, getLintConfig);
   const migrateExec = createMigrateExecute(wikiDir);
   const summarizeExec = createSummarizeExecute(wikiDir, getScope);
 
@@ -1306,7 +1317,8 @@ export function registerTools(
       try { return await lintExec(params); } finally { ctx.ui.setStatus("pi-para", undefined); }
     },
     renderCall(args, theme) {
-      const mode = args.autoFix === false ? "report-only" : "auto-fix";
+      const configuredAutoFix = getLintConfig?.().autoFix ?? true;
+      const mode = (args.autoFix ?? configuredAutoFix) ? "auto-fix" : "report-only";
       return new Text(
         theme.fg("toolTitle", theme.bold("wiki_lint ")) +
           theme.fg("muted", `[${mode}]`),

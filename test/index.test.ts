@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 
 import piPara from "../src/index.js";
 import type { ProjectScope } from "../src/scope.js";
+import { getDefaultUserConfig, saveParaConfig } from "../src/config.js";
+import { initWiki, writePage, readPage } from "../src/wiki.js";
 
 // -- Mock helpers ------------------------------------------------------------
 
@@ -152,6 +154,40 @@ describe("piPara extension entry point", () => {
     expect(toolNames).toContain("wiki_move");
     expect(toolNames).toContain("wiki_lint");
     expect(toolNames).toContain("wiki_summarize");
+  });
+
+  it("wiki_lint defaults honor configured report-only mode and staleDays", async () => {
+    const config = getDefaultUserConfig(configDir);
+    config.lint.autoFix = false;
+    config.lint.staleDays = 10_000;
+    await saveParaConfig(config, { homeDir: configDir });
+    await initWiki(config.wiki.dir);
+    await writePage(config.wiki.dir, {
+      category: "resources",
+      slug: "lint-config-test",
+      frontmatter: {
+        title: "Lint Config Test",
+        para: "resources",
+        scope: ["pi-para"],
+        tags: [],
+        sources: [],
+        created: "2020-01-01",
+        updated: "2020-01-01",
+        links: ["missing-page"],
+        schemaVersion: 1,
+      },
+      body: "See [[missing-page]].",
+    });
+
+    const pi = createMockPi();
+    await piPara(pi as unknown as Parameters<typeof piPara>[0]);
+    const lintTool = pi.tools.find((tool) => tool.name === "wiki_lint") as any;
+    const result = await lintTool.execute("lint-config", {}, undefined, undefined, createMockCtx());
+
+    expect(result.details.fixedCount).toBe(0);
+    expect(result.content[0].text).not.toContain("stale (resources/lint-config-test)");
+    const unchanged = await readPage(config.wiki.dir, "resources", "lint-config-test");
+    expect(unchanged!.body).toContain("[[missing-page]]");
   });
 
   it("registers all 7 slash commands", async () => {

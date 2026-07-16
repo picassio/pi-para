@@ -403,6 +403,84 @@ describe("duplicate slugs", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Link-sync checker/fixer agreement
+// ---------------------------------------------------------------------------
+describe("link sync protected ranges", () => {
+  it("ignores slug mentions in fenced code, inline code, headings, URLs, and existing links", async () => {
+    await writePage(wikiDir, page("resources", "target-page", {}, "Target"));
+    await writePage(
+      wikiDir,
+      page(
+        "resources",
+        "source-page",
+        { links: ["target-page"] },
+        [
+          "# target-page heading",
+          "",
+          "```sh",
+          "target-page command",
+          "```",
+          "",
+          "Use `target-page command` inline.",
+          "Visit https://example.com/target-page for docs.",
+          "Already [[target-page]].",
+        ].join("\n"),
+      ),
+    );
+    await writeIndex(wikiDir, "# Wiki Index\n\n## Resources\n\n- [[source-page]]\n- [[target-page]]\n");
+
+    const report = await lintWiki(wikiDir, { autoFix: false });
+    expect(report.issues.filter((issue) => issue.category === "link-sync" && issue.page === "resources/source-page")).toEqual([]);
+  });
+
+  it("composes secret redaction and link fixes without overwriting either", async () => {
+    await writePage(wikiDir, page("resources", "target-page", {}, "Target"));
+    await writePage(
+      wikiDir,
+      page(
+        "resources",
+        "source-page",
+        {},
+        `Authorization: Bearer ${"a".repeat(40)}\n\nSee target-page for details.`,
+      ),
+    );
+    await writeIndex(wikiDir, "# Wiki Index\n\n## Resources\n\n- [[source-page]]\n- [[target-page]]\n");
+
+    const report = await lintWiki(wikiDir, { autoFix: true });
+    expect(report.fixed.some((issue) => issue.category === "secrets")).toBe(true);
+    expect(report.fixed.some((issue) => issue.category === "link-sync")).toBe(true);
+    const updated = await readPage(wikiDir, "resources", "source-page");
+    expect(updated!.body).toContain("Bearer <REDACTED>");
+    expect(updated!.body).toContain("See [[target-page]] for details.");
+    expect(updated!.body).not.toContain("a".repeat(40));
+  });
+
+  it("detects and fixes ordinary text after fenced and inline code", async () => {
+    await writePage(wikiDir, page("resources", "target-page", {}, "Target"));
+    const body = [
+      "```sh",
+      "echo target-page",
+      "```",
+      "",
+      "Earlier `inline-code` must not protect the rest of the document.",
+      "",
+      "See target-page for the actual contract.",
+    ].join("\n");
+    await writePage(wikiDir, page("resources", "source-page", {}, body));
+    await writeIndex(wikiDir, "# Wiki Index\n\n## Resources\n\n- [[source-page]]\n- [[target-page]]\n");
+
+    const before = await lintWiki(wikiDir, { autoFix: false });
+    expect(before.issues.some((issue) => issue.category === "link-sync" && issue.page === "resources/source-page")).toBe(true);
+
+    const fixed = await lintWiki(wikiDir, { autoFix: true });
+    expect(fixed.fixed.some((issue) => issue.category === "link-sync" && issue.page === "resources/source-page")).toBe(true);
+    const updated = await readPage(wikiDir, "resources", "source-page");
+    expect(updated!.body).toContain("See [[target-page]] for the actual contract.");
+    expect(updated!.body).toContain("echo target-page");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
 describe("wiki stats", () => {

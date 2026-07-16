@@ -24,6 +24,7 @@ import {
   extractWikilinks,
   removeWikilink,
   autoLinkSlugs,
+  findUnlinkedSlugs,
   syncFrontmatterLinks,
 } from "./link-utils.js";
 import { normalizeTags, normalizeScopes } from "./tag-registry.js";
@@ -415,22 +416,9 @@ function checkLinkSync(
 ): LintIssue[] {
   const issues: LintIssue[] = [];
   for (const p of pages) {
-    // Find slugs mentioned in body but not wrapped in [[...]]
-    const bodyLinks = new Set(extractWikilinks(p.body));
-    const sortedSlugs = [...allSlugs]
-      .filter(s => s !== p.slug)
-      .sort((a, b) => b.length - a.length);
-
-    const unlinked: string[] = [];
-    for (const slug of sortedSlugs) {
-      if (bodyLinks.has(slug)) continue;
-      // Check if slug appears as plain text in body (word-boundary match)
-      const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const re = new RegExp(`(?<![a-z0-9-])${escaped}(?![a-z0-9-])`);
-      if (re.test(p.body)) {
-        unlinked.push(slug);
-      }
-    }
+    // Use the exact same protected-range semantics as the fixer so every
+    // auto-fixable issue is actionable (no code-block/heading false positives).
+    const unlinked = findUnlinkedSlugs(p.body, allSlugs, p.slug);
 
     if (unlinked.length > 0) {
       issues.push({
@@ -603,7 +591,9 @@ async function fixSecrets(
           updated: new Date().toISOString(),
         },
       };
-      await writePage(wikiDir, fixedPage);
+      p.body = fixedPage.body;
+      p.frontmatter = fixedPage.frontmatter;
+      await writePage(wikiDir, p);
 
       fixed.push({
         severity: "error",
@@ -650,7 +640,9 @@ async function fixLinkSync(
           updated: new Date().toISOString(),
         },
       };
-      await writePage(wikiDir, fixedPage);
+      p.body = fixedPage.body;
+      p.frontmatter = fixedPage.frontmatter;
+      await writePage(wikiDir, p);
 
       if (addedLinks.length > 0) {
         fixed.push({
@@ -729,7 +721,9 @@ async function fixBrokenLinks(
       body: newBody,
       frontmatter: { ...p.frontmatter, links: newFmLinks },
     };
-    await writePage(wikiDir, fixedPage);
+    p.body = fixedPage.body;
+    p.frontmatter = fixedPage.frontmatter;
+    await writePage(wikiDir, p);
 
     for (const link of broken) {
       fixed.push({
@@ -931,11 +925,10 @@ export async function lintWiki(
 
   // Load all pages
   const refs = await listPages(wikiDir);
-  const pages: WikiPage[] = [];
-  for (const ref of refs) {
-    const page = await readPage(wikiDir, ref.category, ref.slug);
-    if (page) pages.push(page);
-  }
+  const loadedPages = await Promise.all(
+    refs.map((ref) => readPage(wikiDir, ref.category, ref.slug)),
+  );
+  const pages = loadedPages.filter((page): page is WikiPage => page !== null);
 
   // Build slug set
   const allSlugs = new Set(pages.map((p) => p.slug));
@@ -978,15 +971,38 @@ export async function lintWiki(
   // Auto-fix if enabled
   const fixed: LintIssue[] = [];
   if (autoFix) {
-    // Fix secrets first — highest priority
-    fixed.push(...(await fixSecrets(wikiDir, pages)));
-    fixed.push(...(await fixBrokenLinks(wikiDir, pages, allSlugs)));
-    fixed.push(...(await fixLinkSync(wikiDir, pages, allSlugs)));
-    fixed.push(...(await fixTagHealth(wikiDir, pages)));
-    fixed.push(...(await fixIndexDrift(wikiDir, pages, indexContent)));
-    fixed.push(...(await fixFrontmatter(wikiDir, pages)));
-    fixed.push(...(await fixScopeDrift(wikiDir, pages)));
-    fixed.push(...(await fixSchemaVersion(wikiDir, pages)));
+    // Only run a fixer against pages its check identified. Previously every
+    // fixer rescanned all P pages (and link sync scanned all S slugs per page)
+    // even when that category had zero issues.
+    const affectedPages = (category: LintIssue["category"]): WikiPage[] => {
+      const paths = new Set(
+        issues
+          .filter((issue) => issue.category === category && issue.autoFixable && issue.page)
+          .map((issue) => issue.page!),
+      );
+      return paths.size === 0
+        ? []
+        : pages.filter((page) => paths.has(`${page.category}/${page.slug}`));
+    };
+    const hasIssue = (category: LintIssue["category"]): boolean =>
+      issues.some((issue) => issue.category === category && issue.autoFixable);
+
+    // Fix secrets first — highest priority.
+    const secretPages = affectedPages("secrets");
+    if (secretPages.length > 0) fixed.push(...(await fixSecrets(wikiDir, secretPages)));
+    const brokenPages = affectedPages("broken-link");
+    if (brokenPages.length > 0) fixed.push(...(await fixBrokenLinks(wikiDir, brokenPages, allSlugs)));
+    const linkPages = affectedPages("link-sync");
+    if (linkPages.length > 0) fixed.push(...(await fixLinkSync(wikiDir, linkPages, allSlugs)));
+    const tagPages = affectedPages("tag-health");
+    if (tagPages.length > 0) fixed.push(...(await fixTagHealth(wikiDir, tagPages)));
+    if (hasIssue("index-drift")) fixed.push(...(await fixIndexDrift(wikiDir, pages, indexContent)));
+    const frontmatterPages = affectedPages("frontmatter");
+    if (frontmatterPages.length > 0) fixed.push(...(await fixFrontmatter(wikiDir, frontmatterPages)));
+    const scopePages = affectedPages("scope-drift");
+    if (scopePages.length > 0) fixed.push(...(await fixScopeDrift(wikiDir, scopePages)));
+    const schemaPages = affectedPages("schema-version");
+    if (schemaPages.length > 0) fixed.push(...(await fixSchemaVersion(wikiDir, schemaPages)));
   }
 
   // Recount broken links for stats

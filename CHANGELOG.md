@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.6.5] — 2026-07-16
+
+### Fixed
+- `wiki_lint` link-sync checks now use the same Markdown protected-range logic as auto-fix, eliminating false “auto-fixable” findings inside fenced code, inline code, headings, URLs, and existing links.
+- Fixed backtick parsing that could start at a closing code-fence backtick and incorrectly protect hundreds of characters of ordinary Markdown.
+- Auto-fix passes now compose safely on pages with multiple issue types (for example secret redaction plus wikilinking) instead of a later stale page object overwriting an earlier fix.
+- `wiki_lint` now honors configured `lint.autoFix` and `lint.staleDays`; explicit tool arguments still override auto-fix mode.
+- Successful lint mutations now enqueue normal wiki/QMD maintenance so context and search indexes converge.
+
+### Performance
+- Auto-fix only runs each fixer on pages identified by its checker, and page bodies load in parallel. On the 645-page live wiki, no-op/mixed auto-fix fell from ~16.2s to ~3.6s.
+
 ## [0.6.4] — 2026-07-14
 
 ### Fixed

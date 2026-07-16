@@ -50,10 +50,14 @@ function findProtectedRanges(body: string): Array<[number, number]> {
     ranges.push([m.index, m.index + m[0].length]);
   }
 
-  // Inline code
-  const inlineCodeRe = /`[^`]+`/g;
+  // Inline code. Keep spans on one line and skip fenced regions already
+  // recorded above. The old /`[^`]+`/ pattern could start at a closing fence
+  // backtick and protect hundreds of characters of ordinary Markdown.
+  const inlineCodeRe = /`+[^`\n]+`+/g;
   while ((m = inlineCodeRe.exec(body)) !== null) {
-    ranges.push([m.index, m.index + m[0].length]);
+    const start = m.index;
+    const end = m.index + m[0].length;
+    if (!isProtected(start, end, ranges)) ranges.push([start, end]);
   }
 
   // Existing [[wikilinks]]
@@ -89,19 +93,40 @@ function isProtected(pos: number, end: number, ranges: Array<[number, number]>):
   return false;
 }
 
+/** Find plain-text slug mentions that autoLinkSlugs can actually fix. */
+export function findUnlinkedSlugs(
+  body: string,
+  allSlugs: Set<string>,
+  ownSlug?: string,
+): string[] {
+  if (allSlugs.size === 0) return [];
+  const bodyLinks = new Set(extractWikilinks(body));
+  const protectedRanges = findProtectedRanges(body);
+  const unlinked: string[] = [];
+
+  const sortedSlugs = [...allSlugs]
+    .filter((slug) => slug !== ownSlug && !bodyLinks.has(slug))
+    .sort((a, b) => b.length - a.length);
+
+  for (const slug of sortedSlugs) {
+    const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(?<![a-z0-9-])${escaped}(?![a-z0-9-])`, "g");
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(body)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (!isProtected(start, end, protectedRanges)) {
+        unlinked.push(slug);
+        break;
+      }
+    }
+  }
+  return unlinked;
+}
+
 /**
- * Auto-link page slug mentions in body text with [[wikilinks]].
- *
- * - Wraps unlinked slug mentions in [[slug]]
- * - Skips code blocks, URLs, existing [[wikilinks]], headings
- * - Matches longest slugs first to avoid partial matches
- * - Uses word-boundary matching (won't match "pi-para" inside "pi-para-daemon")
- * - Only links each slug once per page (first occurrence) to avoid noise
- *
- * @param body - Page body markdown
- * @param allSlugs - Set of all existing page slugs
- * @param ownSlug - This page's own slug (excluded from auto-linking)
- * @returns Updated body with [[wikilinks]] inserted
+ * Auto-link page slug mentions while skipping code, URLs, headings, and
+ * existing wikilinks. Only the first fixable occurrence of each slug is linked.
  */
 export function autoLinkSlugs(
   body: string,
@@ -115,7 +140,6 @@ export function autoLinkSlugs(
     .filter(s => s !== ownSlug)
     .sort((a, b) => b.length - a.length);
 
-  const protectedRanges = findProtectedRanges(body);
   const linkedSlugs = new Set(extractWikilinks(body));
 
   let result = body;

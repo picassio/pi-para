@@ -246,7 +246,15 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   });
 
   // Register tools, context injection, commands
-  registerTools(pi, wikiDir, storeProxy, getScope, markContextDirty, () => config.searchGraphBoost);
+  registerTools(
+    pi,
+    wikiDir,
+    storeProxy,
+    getScope,
+    markContextDirty,
+    () => config.searchGraphBoost,
+    () => loadedConfig.userConfig?.lint ?? { autoFix: true, staleDays: 90 },
+  );
   setupContextInjection(pi, wikiDir, storeProxy, () => currentScope, getConfig);
   registerCommands(pi, wikiDir, storeProxy, getScope, setScope);
 
