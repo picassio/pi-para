@@ -1,7 +1,7 @@
 import type { QMDStore } from "qmd-engine";
 import { randomUUID } from "node:crypto";
 import { gitCommit, rebuildIndex } from "../wiki.js";
-import { reindex, storeHasApiProviders } from "../store.js";
+import { captureQmdEmbedErrors, reindex, storeHasApiProviders } from "../store.js";
 import { getParaPaths } from "../paths.js";
 import { acquireLease, releaseLease } from "./leases.js";
 import { SchedulerStateDB, type QueueItem } from "./state.js";
@@ -166,10 +166,16 @@ export class WikiScheduler {
     const leaseKey = `qmd-embed:${this.wikiDir}`;
     if (!acquireLease(this.state.db, leaseKey, this.holderId, { ttlMs: 15 * 60_000 })) return;
     try {
-      const result = await store.embed();
+      const attempt = await captureQmdEmbedErrors(() => store.embed());
+      const diagnostics = [...new Set(attempt.diagnostics)].join(" | ");
+      if (!attempt.ok) {
+        const reason = attempt.error instanceof Error ? attempt.error.message : String(attempt.error);
+        throw new Error(diagnostics ? `${reason} — ${diagnostics}` : reason);
+      }
+      const result = attempt.value;
       if (result.errors > 0) {
         throw new Error(
-          `qmd embed finished with ${result.errors} error(s) (${result.chunksEmbedded} chunk(s) embedded, ${pending} doc(s) were pending)`,
+          `qmd embed finished with ${result.errors} error(s) (${result.chunksEmbedded} chunk(s) embedded, ${pending} doc(s) were pending)${diagnostics ? ` — ${diagnostics}` : ""}`,
         );
       }
     } finally {

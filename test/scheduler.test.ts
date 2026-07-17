@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -177,12 +177,17 @@ describe("scheduler", () => {
     }
   });
 
-  it("qmd-embed records provider failures for retry instead of swallowing them", async () => {
+  it("qmd-embed quietly records provider diagnostics for retry instead of flashing raw errors", async () => {
     const file = await tempDb();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const store = {
         getStatus: async () => ({ hasVectorIndex: false, needsEmbedding: 3 }),
-        embed: async () => ({ docsProcessed: 3, chunksEmbedded: 1, errors: 2, durationMs: 10 }),
+        embed: async () => {
+          console.error("embed error:", "API 429 https://provider.example/embeddings: rate limited");
+          console.error("unrelated scheduler error");
+          return { docsProcessed: 3, chunksEmbedded: 1, errors: 2, durationMs: 10 };
+        },
       };
       const scheduler = new WikiScheduler({
         wikiDir: file.dir,
@@ -194,8 +199,37 @@ describe("scheduler", () => {
       const item = scheduler.state.list()[0];
       expect(item?.status).toBe("queued"); // failed → retry with backoff
       expect(item?.attempts).toBe(1);
+      expect(errorSpy).toHaveBeenCalledOnce();
+      expect(errorSpy).toHaveBeenCalledWith("unrelated scheduler error");
+      expect(scheduler.state.listHistory({ taskName: "qmd-embed", limit: 1 })[0]?.error).toContain("API 429");
       scheduler.stop();
     } finally {
+      errorSpy.mockRestore();
+      await file.cleanup();
+    }
+  });
+
+  it("qmd-embed retains the swallowed provider cause when first-chunk probing throws", async () => {
+    const file = await tempDb();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const store = {
+        getStatus: async () => ({ hasVectorIndex: false, needsEmbedding: 1 }),
+        embed: async () => {
+          console.error("embed error:", "API 503 https://provider.example/embeddings: unavailable");
+          throw new Error("Failed to get embedding dimensions from first chunk");
+        },
+      };
+      const scheduler = new WikiScheduler({ wikiDir: file.dir, dbPath: file.dbPath, storeProvider: () => store as any });
+      scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed" });
+      await scheduler.tick();
+      expect(errorSpy).not.toHaveBeenCalled();
+      const failure = scheduler.state.listHistory({ taskName: "qmd-embed", limit: 1 })[0]?.error ?? "";
+      expect(failure).toContain("Failed to get embedding dimensions from first chunk");
+      expect(failure).toContain("API 503");
+      scheduler.stop();
+    } finally {
+      errorSpy.mockRestore();
       await file.cleanup();
     }
   });

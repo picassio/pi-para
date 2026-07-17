@@ -5,6 +5,7 @@
  * re-indexing after wiki changes, and embedding lifecycle.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -72,6 +73,51 @@ const RAW_CONTEXT = "Immutable source material: articles, documents, notes. Not 
 // -- Pending embed tracking --------------------------------------------------
 
 const pendingEmbeds = new WeakMap<QMDStore, Promise<void>>();
+
+export type QmdEmbedOperationResult<T> =
+  | { ok: true; value: T; diagnostics: string[] }
+  | { ok: false; error: unknown; diagnostics: string[] };
+
+// qmd-engine's API adapter logs recoverable provider failures directly to
+// console.error before returning null. Capture only those known messages so
+// best-effort vector search and scheduler retries do not flash raw errors in
+// the Pi UI. Other console errors continue to pass through unchanged.
+const qmdEmbedDiagnosticContext = new AsyncLocalStorage<string[]>();
+let qmdEmbedCaptureCount = 0;
+let qmdEmbedOriginalConsoleError: typeof console.error | null = null;
+const qmdEmbedConsoleInterceptor = (...args: unknown[]): void => {
+  const sink = qmdEmbedDiagnosticContext.getStore();
+  const first = String(args[0] ?? "");
+  if (sink && /^embed(?:Batch)? error:/i.test(first)) {
+    sink.push(args.map((arg) => arg instanceof Error ? arg.message : String(arg)).join(" "));
+    return;
+  }
+  qmdEmbedOriginalConsoleError?.(...args);
+};
+
+/** Run a QMD embedding operation without leaking its recoverable raw stderr. */
+export async function captureQmdEmbedErrors<T>(operation: () => Promise<T>): Promise<QmdEmbedOperationResult<T>> {
+  const diagnostics: string[] = [];
+  if (qmdEmbedCaptureCount++ === 0) {
+    qmdEmbedOriginalConsoleError = console.error;
+    console.error = qmdEmbedConsoleInterceptor;
+  }
+  try {
+    return await qmdEmbedDiagnosticContext.run(diagnostics, async () => {
+      try {
+        return { ok: true, value: await operation(), diagnostics };
+      } catch (error) {
+        return { ok: false, error, diagnostics };
+      }
+    });
+  } finally {
+    qmdEmbedCaptureCount--;
+    if (qmdEmbedCaptureCount === 0) {
+      if (console.error === qmdEmbedConsoleInterceptor && qmdEmbedOriginalConsoleError) console.error = qmdEmbedOriginalConsoleError;
+      qmdEmbedOriginalConsoleError = null;
+    }
+  }
+}
 
 // -- Inert-provider tracking ---------------------------------------------------
 
@@ -184,22 +230,10 @@ export async function openStore(wikiDir: string, opts: OpenStoreOptions = {}): P
   if (opts.backgroundEmbed !== false && opts.paraConfig?.qmd.embedEnabled !== false) {
     // Schedule embedding in background (non-blocking).
     // BM25 search works immediately; hybrid search improves once embed completes.
-    // Suppress console.error from qmd's internal embed failures.
-    const origError = console.error;
-    const embedPromise = store.embed().then(() => {
+    const embedPromise = captureQmdEmbedErrors(() => store.embed()).then(() => {
+      // Embedding failures are non-fatal — hybrid search degrades to BM25.
       pendingEmbeds.delete(store);
-    }).catch(() => {
-      // Embedding failures are non-fatal — hybrid search degrades to BM25
-      pendingEmbeds.delete(store);
-    }).finally(() => {
-      console.error = origError;
     });
-    // Temporarily suppress embed error noise during background embed
-    console.error = (...args: unknown[]) => {
-      const msg = String(args[0] ?? "");
-      if (msg.includes("embed error") || msg.includes("fetch failed")) return;
-      origError(...args);
-    };
     pendingEmbeds.set(store, embedPromise);
   }
 
@@ -317,7 +351,10 @@ async function mergeLexAndVectorResults(
     const llm = (store.internal as unknown as { llm?: unknown }).llm;
     const embedModel = (llm as { embedModelName?: string } | undefined)?.embedModelName;
     if (status.hasVectorIndex && llm && embedModel) {
-      vecResults = await store.internal.searchVec(query, embedModel, limit, "wiki", llm as any) as RawQmdSearchResult[];
+      const vectorAttempt = await captureQmdEmbedErrors(
+        () => store.internal.searchVec(query, embedModel, limit, "wiki", llm as any) as Promise<RawQmdSearchResult[]>,
+      );
+      if (vectorAttempt.ok) vecResults = vectorAttempt.value;
     }
   } catch {
     // Semantic search is best-effort; lexical BM25 remains the reliable fallback.

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -223,6 +223,27 @@ describe("store", () => {
       const results = await searchWiki(store, "testing quality", { limit: 2 });
       expect(results.length).toBeLessThanOrEqual(2);
     }, 30_000);
+
+    it("quietly falls back to BM25 when a transient vector embedding request fails", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const fakeStore = {
+          searchLex: async () => [],
+          getStatus: async () => ({ hasVectorIndex: true }),
+          internal: {
+            llm: { embedModelName: "embed-model" },
+            searchVec: async () => {
+              console.error("embed error:", "API 503 https://provider.example/embeddings: unavailable");
+              throw new Error("vector query unavailable");
+            },
+          },
+        };
+        await expect(searchWiki(fakeStore as any, "transient query", {})).resolves.toEqual([]);
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
 
     it("returns empty array for no matches", async () => {
       store = await openStore(wikiDir);
