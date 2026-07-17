@@ -6,6 +6,7 @@
  */
 
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { existsSync, readdirSync, statSync } from "node:fs";
 
@@ -17,123 +18,108 @@ import { formatLegacyDaemonWarning, isLegacyDaemonCommand } from "./cli-legacy.j
 // -- Model setup -------------------------------------------------------------
 // Use MiniMax via the same config as qmd-engine
 
-async function createModel(modelArg?: string) {
+export async function createModel(modelArg?: string) {
   const { parse } = await import("yaml");
   const { readFileSync } = await import("node:fs");
-  const { getModel, getProviders, getEnvApiKey } = await import("@earendil-works/pi-ai/compat");
+  const { getProviders, getEnvApiKey } = await import("@earendil-works/pi-ai/compat");
+  const { createPiModelServices, parseProviderModelSpec } = await import("./model-resolver.js");
+  const { loadParaConfig } = await import("./config.js");
+  const { resolveCredentialRef } = await import("./credentials.js");
 
-  // 0. Try config.json daemonModel
   if (!modelArg) {
     try {
       const configPath = join(homedir(), ".pi", "wiki", "config.json");
-      const raw = readFileSync(configPath, "utf-8");
-      const config = JSON.parse(raw);
+      const config = JSON.parse(readFileSync(configPath, "utf-8"));
       if (config.daemonModel) {
         modelArg = config.daemonModel;
         console.log(`[daemon] Using model from config.json: ${modelArg}`);
       }
     } catch {
-      // No config or no daemonModel — continue to auto-detect
+      // No legacy daemon model configured.
     }
   }
 
-  // 1. Try CLI --model arg or config daemonModel
-  if (modelArg) {
-    const [provider, ...rest] = modelArg.split("/");
-    const modelId = rest.join("/");
-    if (provider && modelId) {
-      const model = getModel(provider as any, modelId as any);
-      if (model) {
-        // Resolve API key: try AuthStorage first (OAuth), then env vars
-        let authStore: any = null;
-        try {
-          const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
-          authStore = AuthStorage.create();
-        } catch {}
-        const getApiKey = async (p: string) => {
-          if (authStore) {
-            const k = await authStore.getApiKey(p);
-            if (k) return k;
-          }
-          return getEnvApiKey(p) ?? "";
-        };
-        console.log(`[daemon] Using pi model: ${provider}/${modelId} (context: ${model.contextWindow})`);
+  const services = await createPiModelServices();
+  let configuredCapture: Awaited<ReturnType<typeof loadParaConfig>> | null = null;
+  try { configuredCapture = await loadParaConfig(); } catch { /* optional fallback */ }
+  const configuredSelection = configuredCapture?.config.models.capture;
+  if (!modelArg && configuredSelection && configuredSelection !== "auto" && configuredSelection.model) {
+    modelArg = `${configuredSelection.provider}/${configuredSelection.model}`;
+  }
+
+  const configuredSecret = async (provider: string): Promise<string | undefined> => {
+    const selection = configuredCapture?.config.models.capture;
+    if (!selection || selection === "auto" || selection.provider !== provider || !selection.credentialRef.startsWith("secret:")) return undefined;
+    const resolved = await resolveCredentialRef(selection.credentialRef, { secretsPath: configuredCapture?.paths.secretsPath });
+    return resolved.ok ? resolved.value : undefined;
+  };
+  const getDurableKey = async (provider: string): Promise<string | undefined> =>
+    await services?.credentials.getApiKey(provider) ?? await configuredSecret(provider);
+
+  if (modelArg && !services) {
+    console.error("Error: Pi credential runtime is unavailable.");
+    process.exit(1);
+  }
+
+  if (modelArg && services) {
+    const spec = parseProviderModelSpec(modelArg);
+    const model = spec ? services.modelRegistry.find(spec.provider, spec.modelId) : undefined;
+    if (model && model.provider !== "node-llama-cpp" && model.provider !== "local") {
+      const key = await getDurableKey(model.provider) ?? getEnvApiKey(model.provider);
+      if (key) {
+        const getApiKey = async (provider: string) => await getDurableKey(provider) ?? getEnvApiKey(provider);
+        console.log(`[daemon] Using pi model: ${model.provider}/${model.id} (context: ${model.contextWindow})`);
         return { model, getApiKey };
       }
+      console.error(`Error: No credential available for Pi model: ${modelArg}`);
+      process.exit(1);
     }
+    console.error(`Error: Unknown Pi model: ${modelArg}`);
+    process.exit(1);
   }
 
-  // 2. Try pi's auth storage (auth.json) — supports OAuth (Anthropic, GitHub Copilot, etc.)
-  try {
-    const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
-    const authStorage = AuthStorage.create();
-    const { getModels } = await import("@earendil-works/pi-ai/compat");
-
-    // Check providers in preference order: anthropic first (best quality)
+  if (services) {
     const preferredProviders = ["anthropic", "openai", "openrouter", "google-antigravity", "github-copilot"];
     for (const provider of preferredProviders) {
-      if (!authStorage.hasAuth(provider)) continue;
-      const key = await authStorage.getApiKey(provider);
-      if (!key) continue;
-
-      const models = getModels(provider as any);
+      if (!services.credentials.hasStoredCredential(provider) && !await configuredSecret(provider)) continue;
+      const models = services.modelRegistry.getAll().filter((model) => model.provider === provider && model.provider !== "node-llama-cpp" && model.provider !== "local");
       const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
-      const picked = sorted.find(m => !m.reasoning) ?? sorted[0];
+      const picked = sorted.find((model) => !model.reasoning) ?? sorted[0];
       if (picked) {
-        const getApiKey = async (p: string) => {
-          const k = await authStorage.getApiKey(p);
-          return k ?? getEnvApiKey(p) ?? "";
-        };
-        console.log(`[daemon] Using pi auth: ${provider}/${picked.id} (context: ${picked.contextWindow})`);
+        const getApiKey = async (requestedProvider: string) => await getDurableKey(requestedProvider) ?? getEnvApiKey(requestedProvider);
+        console.log(`[daemon] Using persisted Pi auth: ${provider}/${picked.id} (context: ${picked.contextWindow})`);
         return { model: picked, getApiKey };
       }
     }
-  } catch {
-    // AuthStorage not available — continue to env/qmd fallback
   }
 
-  // 3. Try env vars
-  const providers = getProviders();
-  for (const provider of providers) {
+  // Optional legacy environment compatibility.
+  for (const provider of getProviders()) {
     const key = getEnvApiKey(provider);
-    if (key) {
-      const { getModels } = await import("@earendil-works/pi-ai/compat");
-      const models = getModels(provider as any);
-      const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
-      const picked = sorted.find(m => !m.reasoning) ?? sorted[0];
-      if (picked) {
-        const getApiKey = async (p: string) => getEnvApiKey(p) ?? "";
-        console.log(`[daemon] Using env key: ${provider}/${picked.id} (context: ${picked.contextWindow})`);
-        return { model: picked, getApiKey };
-      }
-    }
+    if (!key) continue;
+    const models = services?.modelRegistry.getAll().filter((model) => model.provider === provider) ?? [];
+    const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
+    const picked = sorted.find((model) => !model.reasoning) ?? sorted[0];
+    if (picked) return { model: picked, getApiKey: async (requestedProvider: string) => getEnvApiKey(requestedProvider) };
   }
 
-  // 3. Fall back to qmd config (MiniMax, OpenRouter, etc.)
+  // Preserve the legacy CLI's QMD compatibility fallback.
   const configPath = join(homedir(), ".config", "qmd", "index.yml");
   if (existsSync(configPath)) {
     const cfg = parse(readFileSync(configPath, "utf-8"));
     const chat = cfg?.providers?.chat;
     if (chat?.url && chat?.key) {
       const model = {
-        id: chat.model || "MiniMax-M2.7-highspeed",
-        name: chat.model || "MiniMax-M2.7-highspeed",
-        provider: "custom",
+        id: chat.model || "MiniMax-M2.7-highspeed", name: chat.model || "MiniMax-M2.7-highspeed", provider: "custom",
         api: chat.api === "anthropic" ? "anthropic-messages" as const : "openai-completions" as const,
-        baseUrl: chat.url,
-        reasoning: false,
-        input: ["text" as const],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 196000,
-        maxTokens: 8192,
+        baseUrl: chat.url, reasoning: false, input: ["text" as const],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 196000, maxTokens: 8192,
       };
-      const getApiKey = async (_provider: string) => chat.key as string;
-      console.log(`[daemon] Using qmd provider: ${chat.model} at ${chat.url}`);
-      return { model, getApiKey };
+      return { model, getApiKey: async (_provider: string) => chat.key as string };
     }
   }
 
-  console.error("Error: No LLM available. Set API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) or configure ~/.config/qmd/index.yml");
+  console.error("Error: No LLM available. Configure persisted Pi auth or ~/.pi/para/secrets.json (legacy env/QMD configuration is also supported).");
   process.exit(1);
 }
 
@@ -233,7 +219,7 @@ async function main() {
         const secrets = await readSecretStore();
         const names = Object.keys(secrets.secrets);
         console.log("pi-para providers");
-        console.log("  Credential policy: Pi AuthStorage preferred; pi-para secrets fallback; env vars not used by setup.");
+        console.log("  Credential policy: persisted Pi auth preferred; pi-para secrets fallback; env vars not used by setup.");
         if (names.length === 0) console.log("  No pi-para local secrets configured.");
         for (const name of names) console.log(`  secret:${name} = ${redactCredential(secrets.secrets[name])}`);
       }
@@ -440,12 +426,14 @@ Legacy compatibility commands:
   history            Show processing history (--scope NAME to filter)
 
 Credential policy:
-  Use Pi AuthStorage or ~/.pi/para/secrets.json. Setup does not use env vars for API keys.`);
+  Use persisted Pi auth or ~/.pi/para/secrets.json. Setup does not use env vars for API keys.`);
       break;
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -75,7 +75,7 @@ Planned/project-level overrides may use `<project>/.pi/para.jsonc` in a later sl
 Config stores references, not secret values.
 
 ```text
-pi-auth:<provider>   # Pi AuthStorage, e.g. ~/.pi/agent/auth.json
+pi-auth:<provider>   # persisted Pi auth, e.g. ~/.pi/agent/auth.json
 secret:<name>        # ~/.pi/para/secrets.json
 none                 # local/no-auth endpoint
 ```

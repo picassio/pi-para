@@ -30,7 +30,7 @@ import {
   enqueueCompletedSessionsFromRegistry,
 } from "./scheduler/session-capture.js";
 import { loadParaConfig, toLegacyRuntimeConfig, type ParaUserConfig } from "./config.js";
-import { createModelApiKeyResolver, createPiModelRegistry, getCaptureSelection, resolveSelectedModel } from "./model-resolver.js";
+import { createModelApiKeyResolver, createPiModelServices, getCaptureSelection, resolveSelectedModel } from "./model-resolver.js";
 import { StateDB } from "./state.js";
 
 // Re-export public types for consumers
@@ -169,6 +169,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   const loadedConfig = await loadConfig();
   const config = loadedConfig.runtime;
   const wikiDir = config.wikiDir;
+  const printMode = isPrintModeProcess();
 
   let store: QMDStore | null = null;
   let currentScope: ProjectScope | null = null;
@@ -308,10 +309,10 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     const startupCatchupEnabled = autoCaptureEnabled && wikiConfig?.captureOnStartup !== false && schedulerConfig?.startupCatchup !== false;
     try {
       const loadedParaConfig = await loadParaConfig({ migrate: true });
-      const registry = autoCaptureEnabled ? await createPiModelRegistry() : null;
-      if (registry) {
+      const services = autoCaptureEnabled ? await createPiModelServices() : null;
+      if (services) {
         const captureSelection = getCaptureSelection(loadedParaConfig.config);
-        const captureModel = resolveSelectedModel(captureSelection, registry.modelRegistry, {
+        const captureModel = resolveSelectedModel(captureSelection, services.modelRegistry, {
           legacyModelSpec: config.daemonModel,
           preferredModelSpec: "anthropic/claude-sonnet-4-20250514",
         });
@@ -320,8 +321,8 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
             wikiDir,
             storeProvider: () => store,
             model: captureModel,
-            getApiKey: createModelApiKeyResolver(captureSelection, registry.modelRegistry, {
-              authStorage: registry.authStorage,
+            getApiKey: createModelApiKeyResolver(captureSelection, services.modelRegistry, {
+              credentials: services.credentials,
               secretsPath: loadedParaConfig.paths.secretsPath,
             }),
           });
@@ -332,7 +333,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     }
 
     const embedEnabled = loadedConfig.userConfig?.qmd.embedEnabled !== false;
-    const schedulerEnabled = !isPrintModeProcess() && schedulerConfig?.enabled !== false;
+    const schedulerEnabled = !printMode && schedulerConfig?.enabled !== false;
     const scheduler = schedulerEnabled
       ? startWikiScheduler({
         wikiDir,
@@ -380,15 +381,15 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
           ctx.ui.setStatus("pi-para", `wiki: ${url}`);
         } else {
           ctx.ui.setStatus("pi-para", "wiki: ready (web UI disabled)");
-          setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
+          if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
         }
       } catch {
         ctx.ui.setStatus("pi-para", "wiki: ready");
-        setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
+        if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
       }
     } else {
       ctx.ui.setStatus("pi-para", "wiki: ready");
-      setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
+      if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
     }
   });
 

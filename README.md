@@ -114,7 +114,7 @@ Use `/wiki-settings` or edit:
 Credential refs use one of:
 
 ```text
-pi-auth:<provider>   # Pi AuthStorage, e.g. ~/.pi/agent/auth.json
+pi-auth:<provider>   # Persisted Pi auth, e.g. ~/.pi/agent/auth.json
 secret:<name>        # ~/.pi/para/secrets.json
 none                 # local/no-auth provider
 ```

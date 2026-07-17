@@ -7,7 +7,7 @@ import type { WikiPage, PageFrontmatter } from "../src/wiki.js";
 import { openStore, closeStore } from "../src/store.js";
 import type { QMDStore } from "../src/store.js";
 import type { ProjectScope } from "../src/scope.js";
-import { registerCommands } from "../src/commands.js";
+import { listStoredCaptureProviders, registerCommands } from "../src/commands.js";
 
 // -- Helpers -----------------------------------------------------------------
 
@@ -155,6 +155,21 @@ function createMockPi() {
 // -- Test suite --------------------------------------------------------------
 
 describe("commands", () => {
+  it("lists capture providers from stored credential presence without resolving credential values", () => {
+    const getApiKey = vi.fn(async () => { throw new Error("must not resolve values"); });
+    const services = {
+      modelRegistry: {
+        getAll: () => [{ provider: "anthropic" }, { provider: "openai" }, { provider: "anthropic" }],
+        getAvailable: () => [], find: () => undefined, getApiKeyForProvider: getApiKey,
+      },
+      credentials: {
+        hasStoredCredential: (provider: string) => provider === "anthropic",
+        getApiKey,
+      },
+    } as any;
+    expect(listStoredCaptureProviders(services)).toEqual(["anthropic"]);
+    expect(getApiKey).not.toHaveBeenCalled();
+  });
   let wikiDir: string;
   let store: QMDStore;
   let scope: ProjectScope;

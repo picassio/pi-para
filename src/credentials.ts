@@ -62,7 +62,7 @@ export async function removeSecret(name: string, path = getParaPaths().secretsPa
 
 export async function resolveCredentialRef(
   ref: CredentialRef,
-  opts: { secretsPath?: string; authStorage?: { getApiKey(provider: string): Promise<string | undefined> } } = {},
+  opts: { secretsPath?: string; credentials?: { getApiKey(provider: string): Promise<string | undefined> } | null } = {},
 ): Promise<CredentialResolution> {
   const parsed = parseCredentialRef(ref);
   if (parsed.kind === "none") return { ok: true, source: "none" };
@@ -74,24 +74,17 @@ export async function resolveCredentialRef(
     return { ok: true, source: "secret", value };
   }
 
-  const authStorage = opts.authStorage ?? await createPiAuthStorage();
-  if (!authStorage) {
-    return { ok: false, source: "missing", error: "Pi AuthStorage is unavailable." };
+  const credentials = Object.hasOwn(opts, "credentials")
+    ? opts.credentials
+    : (await (await import("./model-resolver.js")).createPiModelServices())?.credentials;
+  if (!credentials) {
+    return { ok: false, source: "missing", error: "Pi credential runtime is unavailable." };
   }
-  const value = await authStorage.getApiKey(parsed.name ?? "");
+  const value = await credentials.getApiKey(parsed.name ?? "");
   if (!value) return { ok: false, source: "missing", error: `Pi auth not configured for provider: ${parsed.name}` };
   return { ok: true, source: "pi-auth", value };
 }
 
-async function createPiAuthStorage(): Promise<{ getApiKey(provider: string): Promise<string | undefined> } | null> {
-  try {
-    const mod = await import("@earendil-works/pi-coding-agent");
-    const AuthStorage = (mod as unknown as { AuthStorage?: { create(): { getApiKey(provider: string): Promise<string | undefined> } } }).AuthStorage;
-    return AuthStorage?.create() ?? null;
-  } catch {
-    return null;
-  }
-}
 
 export function redactCredential(value: string | undefined): string {
   if (!value) return "not set";

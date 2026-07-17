@@ -127,7 +127,7 @@ pi-para providers remove-secret embedding
 
 Recommended order:
 
-1. Pi AuthStorage (`~/.pi/agent/auth.json`),
+1. persisted Pi auth (`~/.pi/agent/auth.json`),
 2. pi-para secrets (`~/.pi/para/secrets.json`),
 3. `none` for local/no-auth endpoints.
 
@@ -235,7 +235,7 @@ pi-para doctor
 pi-para providers
 ```
 
-Store a local secret only if you do not want to use Pi AuthStorage:
+Store a local secret only if you do not want to use the Pi credential store:
 
 ```bash
 pi-para providers set-secret embedding <key>

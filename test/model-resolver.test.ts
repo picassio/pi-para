@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { Model } from "@earendil-works/pi-ai";
 import {
   createModelApiKeyResolver,
+  createPiModelServices,
   getCaptureSelection,
   parseProviderModelSpec,
   pickBestAvailableModel,
@@ -27,6 +31,7 @@ function model(provider: string, id: string, contextWindow = 1000): Model<any> {
 
 function registry(models: Model<any>[]): ModelRegistryLike {
   return {
+    getAll: () => models,
     getAvailable: () => models,
     find: (provider, modelId) => models.find((m) => m.provider === provider && m.id === modelId),
     getApiKeyForProvider: async (provider) => `${provider}-key`,
@@ -64,9 +69,30 @@ describe("model resolver", () => {
     const reg = registry([model("anthropic", "claude-sonnet")]);
     expect(await createModelApiKeyResolver("auto", reg)("anthropic")).toBe("anthropic-key");
     expect(await createModelApiKeyResolver({ provider: "anthropic", model: "claude-sonnet", credentialRef: "pi-auth:anthropic" }, reg, {
-      authStorage: { getApiKey: async () => "auth-key" },
+      credentials: { hasStoredCredential: () => true, getApiKey: async () => "auth-key" },
     })("anthropic")).toBe("auth-key");
     expect(await createModelApiKeyResolver({ provider: "anthropic", model: "claude-sonnet", credentialRef: "pi-auth:other" }, reg)("openai")).toBeUndefined();
+  });
+
+  it("creates the Pi 0.80.10 runtime with synchronous registry reads and async credential resolution", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pi-para-runtime-"));
+    const authPath = join(dir, "auth.json");
+    try {
+      await writeFile(authPath, JSON.stringify({ anthropic: { type: "api_key", key: "fake-test-key" } }));
+      const services = await createPiModelServices({ authPath });
+      expect(services).not.toBeNull();
+      expect(services!.modelRegistry.getAll().length).toBeGreaterThan(0);
+      expect(services!.credentials.hasStoredCredential("anthropic")).toBe(true);
+      expect(await services!.credentials.getApiKey("anthropic")).toBe("fake-test-key");
+      expect(services!.credentials.hasStoredCredential("missing")).toBe(false);
+      expect(await services!.credentials.getApiKey("missing")).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("never auto-selects local models", () => {
+    expect(resolveSelectedModel("auto", registry([model("node-llama-cpp", "local", 100_000)]))).toBeNull();
   });
 
   it("reads capture selection from config", () => {

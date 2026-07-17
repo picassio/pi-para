@@ -214,6 +214,57 @@ describe("piPara extension entry point", () => {
     expect(config.context.maxTokens).toBe(4000);
   });
 
+  it("registers the capture-session scheduler handler with isolated persisted Pi auth", async () => {
+    const authDir = join(configDir, ".pi", "agent");
+    await mkdir(authDir, { recursive: true });
+    await writeFile(join(authDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "fake-test-key" } }));
+    const config = getDefaultUserConfig(configDir);
+    config.models.capture = { provider: "anthropic", model: "claude-fable-5", credentialRef: "pi-auth:anthropic" };
+    await saveParaConfig(config, { homeDir: configDir });
+
+    const pi = createMockPi();
+    await piPara(pi as unknown as Parameters<typeof piPara>[0]);
+    for (const handler of pi.handlers["session_start"] ?? []) await handler({ reason: "startup" }, createMockCtx());
+
+    const { getWikiScheduler } = await import("../src/scheduler/index.js");
+    const scheduler = getWikiScheduler({ wikiDir });
+    scheduler.enqueue("capture-session", { sessionPath: join(configDir, "missing-session.jsonl") });
+    await scheduler.tick();
+    for (let attempt = 0; attempt < 20 && scheduler.state.listHistory({ taskName: "capture-session" }).length === 0; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await scheduler.tick();
+    }
+    const error = scheduler.state.listHistory({ taskName: "capture-session" })[0]?.error;
+    expect(error).toContain("Session file not found");
+    expect(error).not.toContain("Unknown scheduler task");
+  });
+
+  it.each([
+    ["print", ["node", "pi", "-p"]],
+    ["JSON", ["node", "pi", "--mode", "json"]],
+  ])("session_start schedules no delayed status work in %s mode", async (_mode, argv) => {
+    const config = getDefaultUserConfig(configDir);
+    config.wiki.autoCapture = false;
+    config.scheduler.enabled = false;
+    await saveParaConfig(config, { homeDir: configDir });
+
+    const originalArgv = process.argv;
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    process.argv = argv;
+    try {
+      const pi = createMockPi();
+      await piPara(pi as unknown as Parameters<typeof piPara>[0]);
+      for (const handler of pi.handlers["session_start"] ?? []) {
+        await handler({ reason: "startup" }, createMockCtx());
+      }
+
+      expect(timeoutSpy.mock.calls.filter(([, delay]) => delay === 3000)).toEqual([]);
+    } finally {
+      process.argv = originalArgv;
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("session_start creates wiki directory structure", async () => {
     const pi = createMockPi();
     await piPara(pi as unknown as Parameters<typeof piPara>[0]);

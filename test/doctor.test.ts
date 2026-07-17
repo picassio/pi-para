@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { formatDoctorResult, runDoctor } from "../src/doctor.js";
@@ -68,7 +68,7 @@ describe("doctor", () => {
       };
       config.models.capture = {
         provider: "anthropic",
-        model: "claude-sonnet-4-20250514",
+        model: "claude-fable-5",
         credentialRef: "secret:capture",
       };
       await saveParaConfig(config, { homeDir: home.dir });
@@ -79,6 +79,22 @@ describe("doctor", () => {
       expect(result.checks.find((check) => check.name === "qmd-embedding")).toMatchObject({ status: "ok" });
       expect(result.checks.find((check) => check.name === "capture-model")).toMatchObject({ status: "warn" });
       expect(result.checks.find((check) => check.name === "capture-model")?.message).toContain("Secret not found: capture");
+    } finally {
+      await home.cleanup();
+    }
+  });
+
+  it("tests capture model credentials without running a completion", async () => {
+    const home = await tempHome();
+    try {
+      const authDir = join(home.dir, ".pi", "agent");
+      await mkdir(authDir, { recursive: true });
+      await writeFile(join(authDir, "auth.json"), JSON.stringify({ anthropic: { type: "api_key", key: "fake-test-key" } }));
+      const config = getDefaultUserConfig(home.dir);
+      config.models.capture = { provider: "anthropic", model: "claude-fable-5", credentialRef: "pi-auth:anthropic" };
+      await saveParaConfig(config, { homeDir: home.dir });
+      const result = await runDoctor({ homeDir: home.dir, validateQmd: false, testCaptureModel: true });
+      expect(result.checks.find((check) => check.name === "capture-model")).toMatchObject({ status: "ok" });
     } finally {
       await home.cleanup();
     }

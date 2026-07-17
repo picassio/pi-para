@@ -25,6 +25,15 @@ import {
   validateFrontmatter,
 } from "./frontmatter.js";
 import { appendCompletedSession } from "./scheduler/session-capture.js";
+import { createPiModelServices, type PiModelServices } from "./model-resolver.js";
+
+export function listStoredCaptureProviders(services: PiModelServices): string[] {
+  return [...new Set(
+    services.modelRegistry.getAll()
+      .map((model) => model.provider)
+      .filter((provider) => services.credentials.hasStoredCredential(provider)),
+  )];
+}
 
 // -- Helpers -----------------------------------------------------------------
 
@@ -733,10 +742,9 @@ ${goal} — verified and complete.
           }
         } else if (choice.startsWith("[Capture]")) {
           try {
-            const { getProviders, getModels } = await import("@earendil-works/pi-ai/compat");
-            const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
-            const authStorage = AuthStorage.create();
-            const availableProviders = getProviders().filter((p: string) => authStorage.hasAuth(p));
+            const services = await createPiModelServices();
+            if (!services) throw new Error("Pi model runtime unavailable");
+            const availableProviders = listStoredCaptureProviders(services);
 
             if (availableProviders.length === 0) {
               ctx.ui.notify("No Pi auth providers configured. Use /login first or configure a pi-para secret for custom providers.", "warning");
@@ -747,8 +755,9 @@ ${goal} — verified and complete.
                 await persist();
                 ctx.ui.notify("Set capture model = auto. Restart open Pi sessions to apply.", "info");
               } else if (providerChoice) {
-                const models = getModels(providerChoice as any)
-                  .sort((a: any, b: any) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
+                const models = services.modelRegistry.getAll()
+                  .filter((model) => model.provider === providerChoice)
+                  .sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
                 const modelChoice = await ctx.ui.select(
                   `Select ${providerChoice} model`,
                   models.map((m: any) => `${m.id} (${Math.round((m.contextWindow ?? 0) / 1000)}k ctx${m.reasoning ? ", reasoning" : ""})`),

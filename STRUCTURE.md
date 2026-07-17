@@ -57,7 +57,7 @@ skills/
 |---|---|
 | `src/paths.ts` | Cross-platform path resolution |
 | `src/config.ts` | JSONC config defaults, migration, save/load |
-| `src/credentials.ts` | Pi AuthStorage/local secret credential refs |
+| `src/credentials.ts` | Persisted Pi auth/local secret credential refs |
 | `src/settings.ts` | Pure helpers for `/wiki-settings` updates |
 | `src/setup.ts` | CLI setup flow |
 | `src/status.ts` | Lightweight config/wiki/scheduler status summary |

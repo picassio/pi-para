@@ -5,7 +5,7 @@ import { readSecretStore, resolveCredentialRef } from "./credentials.js";
 import { getParaPaths } from "./paths.js";
 import { openStore, closeStore } from "./store.js";
 import type { ProviderCredentialRef } from "./config.js";
-import { createPiModelRegistry, getCaptureSelection, resolveSelectedModel } from "./model-resolver.js";
+import { createModelApiKeyResolver, createPiModelServices, getCaptureSelection, resolveSelectedModel } from "./model-resolver.js";
 import { SchedulerStateDB } from "./scheduler/state.js";
 import { ensureGeneratedStateGitignore, fixSecretPermissions, missingGeneratedStateGitignorePatterns } from "./repair.js";
 
@@ -51,7 +51,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
 
   checks.push(await checkSecrets(paths.secretsPath));
   checks.push(await checkGeneratedStateGitignore(paths.wikiDir));
-  checks.push(...await checkProviderDiagnostics(loaded.config, paths.secretsPath, options));
+  checks.push(...await checkProviderDiagnostics(loaded.config, paths.secretsPath, `${paths.agentDir}/auth.json`, options));
 
   if (options.validateQmd !== false) {
     checks.push(await checkQmd(paths.wikiDir, loaded.config, paths.secretsPath));
@@ -131,6 +131,7 @@ async function checkGeneratedStateGitignore(wikiDir: string): Promise<DoctorChec
 async function checkProviderDiagnostics(
   config: ParaUserConfig,
   secretsPath: string,
+  authPath: string,
   options: DoctorOptions,
 ): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
@@ -144,49 +145,50 @@ async function checkProviderDiagnostics(
   if (!config.qmd.embedEnabled) {
     checks.push({ name: "qmd-embedding", status: "ok", message: "embedding disabled" });
   } else if (config.qmd.embedding) {
-    checks.push(await checkCredentialProfile("qmd-embedding", config.qmd.embedding, secretsPath));
+    checks.push(await checkCredentialProfile("qmd-embedding", config.qmd.embedding, secretsPath, authPath));
   } else {
     checks.push({ name: "qmd-embedding", status: "warn", message: "embedding enabled but no pi-para embedding profile is configured" });
   }
 
   if (config.qmd.rerank) {
-    checks.push(await checkCredentialProfile("qmd-rerank", config.qmd.rerank, secretsPath));
+    checks.push(await checkCredentialProfile("qmd-rerank", config.qmd.rerank, secretsPath, authPath));
   } else {
     checks.push({ name: "qmd-rerank", status: "ok", message: "rerank disabled" });
   }
 
-  checks.push(await checkCaptureModel(config, secretsPath, options.testCaptureModel === true));
+  checks.push(await checkCaptureModel(config, secretsPath, authPath, options.testCaptureModel === true));
   return checks;
 }
 
-async function checkCredentialProfile(name: string, profile: ProviderCredentialRef, secretsPath: string): Promise<DoctorCheck> {
+async function checkCredentialProfile(name: string, profile: ProviderCredentialRef, secretsPath: string, authPath: string): Promise<DoctorCheck> {
   const label = `${profile.provider}/${profile.model ?? "model not set"}`;
   if (profile.credentialRef === "none") {
     return { name, status: "ok", message: `${label} uses no credential` };
   }
-  const resolved = await resolveCredentialRef(profile.credentialRef, { secretsPath });
+  const services = profile.credentialRef.startsWith("pi-auth:") ? await createPiModelServices({ authPath }) : null;
+  const resolved = await resolveCredentialRef(profile.credentialRef, { secretsPath, credentials: services?.credentials });
   if (!resolved.ok) {
     return { name, status: "warn", message: `${label} credential missing: ${resolved.error}` };
   }
   return { name, status: "ok", message: `${label} credential available via ${resolved.source}` };
 }
 
-async function checkCaptureModel(config: ParaUserConfig, secretsPath: string, testModel: boolean): Promise<DoctorCheck> {
+async function checkCaptureModel(config: ParaUserConfig, secretsPath: string, authPath: string, testModel: boolean): Promise<DoctorCheck> {
   const selection = getCaptureSelection(config);
   if (!testModel) {
     if (selection === "auto") return { name: "capture-model", status: "ok", message: "auto selection; run doctor --test-capture-model to resolve" };
-    return checkCredentialProfile("capture-model", selection, secretsPath);
+    return checkCredentialProfile("capture-model", selection, secretsPath, authPath);
   }
 
   try {
-    const registry = await createPiModelRegistry();
-    if (!registry) return { name: "capture-model", status: "warn", message: "Pi model registry unavailable" };
-    const model = resolveSelectedModel(selection, registry.modelRegistry, { preferredModelSpec: "anthropic/claude-sonnet-4-20250514" });
+    const services = await createPiModelServices({ authPath });
+    if (!services) return { name: "capture-model", status: "warn", message: "Pi credential runtime is unavailable" };
+    const model = resolveSelectedModel(selection, services.modelRegistry, { preferredModelSpec: "anthropic/claude-sonnet-4-20250514" });
     if (!model) return { name: "capture-model", status: "warn", message: "no capture model resolved" };
-    const getKey = selection === "auto"
-      ? () => registry.modelRegistry.getApiKeyForProvider(model.provider)
-      : () => resolveCredentialRef(selection.credentialRef, { secretsPath, authStorage: registry.authStorage }).then((r) => r.value);
-    const key = await getKey();
+    const key = await createModelApiKeyResolver(selection, services.modelRegistry, {
+      credentials: services.credentials,
+      secretsPath,
+    })(model.provider);
     return key
       ? { name: "capture-model", status: "ok", message: `${model.provider}/${model.id} credential available` }
       : { name: "capture-model", status: "warn", message: `${model.provider}/${model.id} resolved but credential is missing` };

@@ -51,9 +51,9 @@ describe("credentials", () => {
     }
   });
 
-  it("resolves pi auth through an injected auth storage", async () => {
+  it("resolves pi auth through an injected credential reader", async () => {
     const result = await resolveCredentialRef("pi-auth:anthropic", {
-      authStorage: { getApiKey: async (provider) => provider === "anthropic" ? "token" : undefined },
+      credentials: { getApiKey: async (provider) => provider === "anthropic" ? "token" : undefined },
     });
     expect(result).toEqual({ ok: true, source: "pi-auth", value: "token" });
   });
@@ -62,9 +62,14 @@ describe("credentials", () => {
     await expect(setSecret("", "value")).rejects.toThrow(/Secret name/);
     await expect(setSecret("name", "")).rejects.toThrow(/Secret value/);
     expect(await resolveCredentialRef("none")).toEqual({ ok: true, source: "none" });
-    expect(await resolveCredentialRef("pi-auth:missing", { authStorage: { getApiKey: async () => undefined } })).toMatchObject({
+    expect(await resolveCredentialRef("pi-auth:missing", { credentials: { getApiKey: async () => undefined } })).toMatchObject({
       ok: false,
       source: "missing",
+    });
+    expect(await resolveCredentialRef("pi-auth:missing", { credentials: null })).toEqual({
+      ok: false,
+      source: "missing",
+      error: "Pi credential runtime is unavailable.",
     });
     expect(redactCredential(undefined)).toBe("not set");
     expect(redactCredential("short")).toBe("********");
