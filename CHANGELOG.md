@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## [0.6.6] — 2026-07-17
+
+### Fixed
+- Restored Pi model and persisted-auth integration on Pi 0.80.10 by replacing removed `AuthStorage`/registry factory APIs with the supported awaited `ModelRuntime`, `ModelRegistry`, and `readStoredCredential` flow.
+- Restored scheduler `capture-session` registration, capture-provider settings, doctor diagnostics, and legacy CLI model selection when using persisted Pi credentials or configured pi-para secrets.
+- Print and JSON one-shot sessions no longer retain delayed status callbacks that can outlive the extension context and crash with a stale-context error.
+
+### Changed
+- Pi peer compatibility now starts at `0.80.10`; development validation pins the Pi packages exactly to `0.80.10`.
+- User-facing credential terminology now says “persisted Pi auth” or “Pi credential store” instead of referring to the removed public `AuthStorage` API.
+
+### Tests
+- Added behavior regressions for ModelRuntime initialization/refresh ordering, stored credential resolution, CLI selection, settings enumeration, doctor diagnostics, scheduler handler registration, and print/JSON no-background behavior.
+
 ## [0.6.5] — 2026-07-16
 
 ### Fixed
