@@ -39,7 +39,7 @@ const TOOL_SPECIFIC_GUIDELINES: Record<WikiToolName, readonly string[]> = {
     "After ingesting, synthesize durable knowledge with wiki_write/wiki_edit when the source contains reusable facts.",
   ],
   wiki_query: [
-    "Use wiki_query before answering questions that may depend on past architecture decisions, debugging history, conventions, or domain knowledge.",
+    "Call wiki_query FIRST — before other tools — for any non-trivial planning, implementation, debugging, architecture, or review request; the wiki may hold prior decisions, root causes, and conventions.",
     "Use global=true only when the answer should search across project scopes.",
   ],
   wiki_edit: [
@@ -76,7 +76,7 @@ export function buildWikiToolGuidanceSection(): string {
   return [
     "## pi-para Wiki Tool Guidance",
     "",
-    "- Search with wiki_query when past architecture, debugging, conventions, domain facts, or prior discussion may matter.",
+    "- Start non-trivial work with wiki_query using keywords from the request; past architecture, debugging, conventions, domain facts, or prior discussion may already be documented.",
     "- Treat AGING/STALE/VERY STALE code/config/API claims as untrusted until verified against source; fix wrong pages with wiki_edit.",
     "- Persist major decisions/debugging/conventions without being asked. Use wiki_edit for surgical fixes; wiki_write create/append for new/additive knowledge; replace only for deliberate full rewrites.",
     "- Prefer resources/, kebab-case scope/tags, [[wikilinks]], and no secrets.",
