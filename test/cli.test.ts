@@ -8,16 +8,22 @@ import { setSecret } from "../src/credentials.js";
 
 let home: string;
 let oldHome: string | undefined;
+let oldUserProfile: string | undefined;
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "pi-para-cli-"));
   oldHome = process.env.HOME;
+  oldUserProfile = process.env.USERPROFILE;
   process.env.HOME = home;
+  // Windows os.homedir() resolves USERPROFILE, not HOME.
+  process.env.USERPROFILE = home;
 });
 
 afterEach(async () => {
   if (oldHome === undefined) delete process.env.HOME;
   else process.env.HOME = oldHome;
+  if (oldUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = oldUserProfile;
   await rm(home, { recursive: true, force: true });
 });
 

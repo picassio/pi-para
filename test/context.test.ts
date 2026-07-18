@@ -709,7 +709,9 @@ describe("buildContext — 500-page scale test", () => {
 
   // Windows CI runners are slow and their fs/sqlite latency is noisy — keep the
   // perf regression guard strict on POSIX dev machines, generous on win32.
-  const PERF_SLACK = process.platform === "win32" ? 10 : 1;
+  // Windows and shared CI runners are far slower/noisier than local Linux.
+  // Thresholds still catch order-of-magnitude regressions (disk builds ~500ms).
+  const PERF_SLACK = process.platform === "win32" ? 10 : process.env.CI ? 4 : 1;
 
   it("buildContext from disk completes in <10ms at 500 pages (after initial read)", async () => {
     // Generate 500 pages on disk
