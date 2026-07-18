@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.6.7] — 2026-07-18
+
+### Fixed
+- Recoverable embedding-provider failures during background embedding and best-effort vector search no longer flash raw `embed error:`/`embedBatch error:` output; they are captured per operation and fall back quietly to BM25 while durable scheduler retry history keeps deduplicated provider causes. Unrelated `console.error` output still passes through.
+
+### Changed
+- The wiki system reminder now opens with a MANDATORY FIRST STEP instruction: for any non-trivial request, the first tool call must be `wiki_query` with keywords from the request, followed by `wiki_read` of relevant results. `wiki_query` tool guidelines and the centralized wiki tool guidance were strengthened to match.
+
 ## [0.6.6] — 2026-07-17
 
 ### Fixed
