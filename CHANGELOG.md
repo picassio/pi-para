@@ -2,10 +2,19 @@
 
 ## Unreleased
 
-### Removed
-- Removed the unused Python capture prototypes and compiled bytecode from the package.
-- Removed the unreferenced link-discovery module; finished implementation plans now live under `docs/archive/`.
-- Removed the legacy daemon, watcher, maintainer, Web Wiki bundle, service file, and daemon plan; legacy CLI invocations now exit nonzero with embedded-scheduler guidance.
+## [0.7.0] — 2026-07-18
+
+### Removed (breaking for deprecated daemon aliases)
+- Removed the legacy daemon subsystem: daemon, watcher, maintainer, Web Wiki server/bundle (which defaulted to binding 0.0.0.0:10973), the systemd service file, and the daemon plan. Capture and maintenance run automatically via the embedded scheduler. `pi-para daemon`/`watch` and the retained `pi-para-daemon` binary now exit nonzero with guidance pointing to `pi-para tasks` and `pi-para doctor`; legacy `webWiki` config keys are ignored with a notice.
+- Removed the unused Python capture prototypes and compiled bytecode that were shipped in the npm package.
+- Removed the unreferenced link-discovery module and its package export; finished implementation plans now live under `docs/archive/`.
+
+### Fixed
+- CLI scheduler commands (`pi-para tasks …`) now honor a configured `wiki.dir` instead of always using `~/.pi/wiki`, matching the extension's path resolution. Regressions cover custom directories and malformed-config fallback.
+
+### Changed
+- Split the wiki tool registrations into focused `src/tools/` modules with byte-identical tool names, schemas, descriptions, and guidance.
+- The build script no longer copies Web Wiki assets; `npm run build` cleans `dist/` and compiles.
 
 ## [0.6.7] — 2026-07-18
 
