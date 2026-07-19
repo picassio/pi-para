@@ -11,8 +11,7 @@ Pi process
       ├─ QMD SDK store (.qmd.sqlite)
       ├─ in-process scheduler (.pi-para.sqlite)
       ├─ tools + slash commands
-      ├─ context injection
-      └─ optional WebWiki UI
+      └─ context injection
 ```
 
 No separate OS daemon is required. The scheduler runs while Pi is open and catches up on the next startup if Pi was closed.
@@ -142,10 +141,9 @@ Tool API contracts and behavioral guidance are separated:
 
 Kept temporarily:
 
-- `pi-para-daemon` binary alias,
-- `/wiki-daemon` slash command alias,
-- legacy daemon CLI subcommands,
+- `pi-para-daemon` binary name, which exits nonzero with scheduler migration guidance,
+- `/wiki-daemon` slash command alias for `/wiki-scheduler`,
 - legacy config migration from `~/.pi/wiki/config.json`,
 - legacy QMD YAML provider fallback.
 
-Primary docs and setup should point users to `pi-para`, `/wiki-scheduler`, and `~/.pi/para/config.jsonc`.
+Primary docs and setup point users to `pi-para`, `/wiki-scheduler`, and `~/.pi/para/config.jsonc`.

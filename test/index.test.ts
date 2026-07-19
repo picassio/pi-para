@@ -239,6 +239,26 @@ describe("piPara extension entry point", () => {
     expect(error).not.toContain("Unknown scheduler task");
   });
 
+  it("ignores legacy webWiki config with a clear removal notice", async () => {
+    const config = getDefaultUserConfig(configDir);
+    config.webWiki.enabled = true;
+    config.wiki.autoCapture = false;
+    config.scheduler.enabled = false;
+    await saveParaConfig(config, { homeDir: configDir });
+
+    const pi = createMockPi();
+    const ctx = createMockCtx();
+    await piPara(pi as unknown as Parameters<typeof piPara>[0]);
+    for (const handler of pi.handlers["session_start"] ?? []) {
+      await handler({ reason: "startup" }, ctx);
+    }
+
+    expect((ctx.ui as { notify: ReturnType<typeof vi.fn> }).notify).toHaveBeenCalledWith(
+      "webWiki configuration is ignored because Web Wiki was removed in 0.7.",
+      "warning",
+    );
+  });
+
   it.each([
     ["print", ["node", "pi", "-p"]],
     ["JSON", ["node", "pi", "--mode", "json"]],

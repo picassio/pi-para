@@ -1,34 +1,40 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { formatLegacyDaemonWarning, isLegacyDaemonCommand } from "../src/cli-legacy.js";
+import {
+  formatLegacyDaemonRemoval,
+  isLegacyDaemonBinary,
+  isLegacyDaemonCommand,
+} from "../src/cli-legacy.js";
 
-describe("legacy daemon CLI warnings", () => {
-  it("identifies legacy daemon commands", () => {
+const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+
+function runCli(command: string) {
+  return spawnSync(process.execPath, ["--import", "tsx", cliPath, command], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)),
+    encoding: "utf8",
+  });
+}
+
+describe("removed legacy daemon CLI", () => {
+  it("identifies removed commands and compatibility binary names", () => {
+    expect(isLegacyDaemonCommand("daemon")).toBe(true);
+    expect(isLegacyDaemonCommand("watch")).toBe(true);
     expect(isLegacyDaemonCommand("start")).toBe(true);
-    expect(isLegacyDaemonCommand("process-recent")).toBe(true);
-    expect(isLegacyDaemonCommand("legacy-status")).toBe(true);
-    expect(isLegacyDaemonCommand("status")).toBe(false);
-    expect(isLegacyDaemonCommand("status")).toBe(false);
     expect(isLegacyDaemonCommand("tasks")).toBe(false);
     expect(isLegacyDaemonCommand(undefined)).toBe(false);
+    expect(isLegacyDaemonBinary("/usr/local/bin/pi-para-daemon")).toBe(true);
+    expect(isLegacyDaemonBinary("C:\\bin\\pi-para-daemon.cmd")).toBe(true);
+    expect(isLegacyDaemonBinary("/usr/local/bin/pi-para")).toBe(false);
   });
 
-  it("formats migration warnings with current workflow guidance", () => {
-    const expected = new Map([
-      ["start", "pi-para setup"],
-      ["stop", "/wiki-scheduler status"],
-      ["legacy-status", "pi-para tasks"],
-      ["process", "pi-para capture-recent"],
-      ["process-recent", "pi-para capture-recent"],
-      ["retry-failed", "pi-para tasks retry"],
-      ["history", "pi-para tasks history"],
-      ["unknown", "pi-para tasks"],
-    ]);
-
-    for (const [command, replacement] of expected) {
-      const warning = formatLegacyDaemonWarning(command);
-      expect(warning).toContain("deprecated legacy daemon command");
-      expect(warning).toContain("in-process scheduler");
-      expect(warning).toContain(replacement);
-    }
+  it.each(["daemon", "watch"])("prints the removal message and exits nonzero for %s", (command) => {
+    const result = runCli(command);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toBe(`${formatLegacyDaemonRemoval(command)}\n`);
+    expect(result.stderr).toContain("removed in 0.7");
+    expect(result.stderr).toContain("embedded scheduler");
+    expect(result.stderr).toContain("pi-para tasks");
+    expect(result.stderr).toContain("pi-para doctor");
   });
 });

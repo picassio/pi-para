@@ -653,9 +653,6 @@ ${goal} — verified and complete.
         toggleLintAutoFix,
         setCaptureModelAuto,
         setCaptureModel,
-        setWebWikiEnabled,
-        setWebWikiHost,
-        setWebWikiPort,
         ensureEmbeddingProfile,
         ensureRerankProfile,
         disableRerank,
@@ -689,7 +686,6 @@ ${goal} — verified and complete.
           `[Search]  Limit: ${config.context.searchLimit}, Graph boost: ${config.context.searchGraphBoost}`,
           `[Lint]    Auto-fix: ${config.lint.autoFix}, Stale days: ${config.lint.staleDays}`,
           `[Capture] Model: ${modelSelectionLabel(config.models.capture)}`,
-          `[WebWiki] ${config.webWiki.enabled ? `Enabled at http://${config.webWiki.host}:${config.webWiki.port}` : "Disabled"}`,
           `[Embedding] ${providerProfileLabel(config.qmd.embedding)}`,
           `[Rerank]  ${providerProfileLabel(config.qmd.rerank)}`,
           `[Secrets] ${secretsLabel}`,
@@ -782,23 +778,6 @@ ${goal} — verified and complete.
             }
             await persist();
             ctx.ui.notify(`Set capture model = ${modelSelectionLabel(config.models.capture)}. Restart open Pi sessions to apply.`, "info");
-          }
-        } else if (choice.startsWith("[WebWiki]")) {
-          const sub = await ctx.ui.select("Web Wiki Settings", [
-            `Enabled: ${config.webWiki.enabled}`,
-            `Host: ${config.webWiki.host}`,
-            `Port: ${config.webWiki.port}`,
-          ]);
-          if (sub?.startsWith("Enabled")) {
-            setWebWikiEnabled(config, !config.webWiki.enabled);
-            await persist();
-            ctx.ui.notify(`Web Wiki ${config.webWiki.enabled ? "enabled" : "disabled"}. Restart open Pi sessions to apply.`, "info");
-          } else if (sub?.startsWith("Host")) {
-            const val = await ctx.ui.input("Host:", config.webWiki.host);
-            if (val) { setWebWikiHost(config, val); await persist(); }
-          } else if (sub?.startsWith("Port")) {
-            const val = await ctx.ui.input("Port:", String(config.webWiki.port));
-            if (val) { setWebWikiPort(config, val); await persist(); }
           }
         } else if (choice.startsWith("[Secrets]")) {
           const entries = Object.entries(secretStore.secrets);

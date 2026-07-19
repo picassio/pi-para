@@ -60,12 +60,6 @@ Planned/project-level overrides may use `<project>/.pi/para.jsonc` in a later sl
   "lint": {
     "autoFix": true,
     "staleDays": 90
-  },
-  "webWiki": {
-    "enabled": false,
-    "host": "127.0.0.1",
-    "port": 10973,
-    "launch": "manual"
   }
 }
 ```
@@ -203,16 +197,7 @@ pi-para never uses QMD's local/node-llama-cpp LLM fallback. If no API provider i
 | `autoFix` | Default lint autofix behavior |
 | `staleDays` | Age threshold for stale pages |
 
-### `webWiki`
-
-Optional browser UI.
-
-| Field | Meaning |
-|---|---|
-| `enabled` | Show/use WebWiki status |
-| `host` | Bind host |
-| `port` | Port |
-| `launch` | `manual` or `disabled` |
+Legacy `webWiki` keys are accepted for compatibility but ignored with a one-line notice because Web Wiki was removed in 0.7.
 
 ## Diagnostics
 

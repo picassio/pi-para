@@ -2,7 +2,7 @@
  * Shared wikilink utilities — extraction, auto-linking, and sync.
  *
  * Centralizes the [[wikilink]] logic that was duplicated across
- * tools.ts, lint.ts, processor.ts, and webui/server.ts.
+ * tools.ts, lint.ts, and processor.ts.
  */
 
 // -- Wikilink extraction ----------------------------------------------------

@@ -52,6 +52,7 @@ export interface ParaUserConfig {
     autoFix: boolean;
     staleDays: number;
   };
+  /** Deprecated compatibility input. Preserved when loading but ignored by the runtime. */
   webWiki: {
     enabled: boolean;
     host: string;
@@ -71,7 +72,6 @@ export interface LegacyParaRuntimeConfig {
   searchIncludeArchives: boolean;
   searchGraphBoost: boolean;
   daemonModel: string | null;
-  webWiki: { enabled: boolean; host: string; port: number };
 }
 
 export interface LoadedParaConfig {
@@ -292,11 +292,6 @@ export function toLegacyRuntimeConfig(config: ParaUserConfig): LegacyParaRuntime
     searchIncludeArchives: false,
     searchGraphBoost: config.context.searchGraphBoost,
     daemonModel,
-    webWiki: {
-      enabled: config.webWiki.enabled,
-      host: config.webWiki.host,
-      port: config.webWiki.port,
-    },
   };
 }
 

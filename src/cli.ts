@@ -2,137 +2,35 @@
 /**
  * CLI for pi-para.
  *
- * The old pi-para-daemon commands remain as deprecated compatibility aliases.
+ * The pi-para-daemon binary remains only to report the legacy daemon removal.
  */
 
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { existsSync, readdirSync, statSync } from "node:fs";
-
-import { Daemon } from "./daemon.js";
-import { StateDB } from "./state.js";
-import { RegistryWatcher } from "./watcher.js";
-import { formatLegacyDaemonWarning, isLegacyDaemonCommand } from "./cli-legacy.js";
-
-// -- Model setup -------------------------------------------------------------
-// Use MiniMax via the same config as qmd-engine
-
-export async function createModel(modelArg?: string) {
-  const { parse } = await import("yaml");
-  const { readFileSync } = await import("node:fs");
-  const { getProviders, getEnvApiKey } = await import("@earendil-works/pi-ai/compat");
-  const { createPiModelServices, parseProviderModelSpec } = await import("./model-resolver.js");
-  const { loadParaConfig } = await import("./config.js");
-  const { resolveCredentialRef } = await import("./credentials.js");
-
-  if (!modelArg) {
-    try {
-      const configPath = join(homedir(), ".pi", "wiki", "config.json");
-      const config = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (config.daemonModel) {
-        modelArg = config.daemonModel;
-        console.log(`[daemon] Using model from config.json: ${modelArg}`);
-      }
-    } catch {
-      // No legacy daemon model configured.
-    }
-  }
-
-  const services = await createPiModelServices();
-  let configuredCapture: Awaited<ReturnType<typeof loadParaConfig>> | null = null;
-  try { configuredCapture = await loadParaConfig(); } catch { /* optional fallback */ }
-  const configuredSelection = configuredCapture?.config.models.capture;
-  if (!modelArg && configuredSelection && configuredSelection !== "auto" && configuredSelection.model) {
-    modelArg = `${configuredSelection.provider}/${configuredSelection.model}`;
-  }
-
-  const configuredSecret = async (provider: string): Promise<string | undefined> => {
-    const selection = configuredCapture?.config.models.capture;
-    if (!selection || selection === "auto" || selection.provider !== provider || !selection.credentialRef.startsWith("secret:")) return undefined;
-    const resolved = await resolveCredentialRef(selection.credentialRef, { secretsPath: configuredCapture?.paths.secretsPath });
-    return resolved.ok ? resolved.value : undefined;
-  };
-  const getDurableKey = async (provider: string): Promise<string | undefined> =>
-    await services?.credentials.getApiKey(provider) ?? await configuredSecret(provider);
-
-  if (modelArg && !services) {
-    console.error("Error: Pi credential runtime is unavailable.");
-    process.exit(1);
-  }
-
-  if (modelArg && services) {
-    const spec = parseProviderModelSpec(modelArg);
-    const model = spec ? services.modelRegistry.find(spec.provider, spec.modelId) : undefined;
-    if (model && model.provider !== "node-llama-cpp" && model.provider !== "local") {
-      const key = await getDurableKey(model.provider) ?? getEnvApiKey(model.provider);
-      if (key) {
-        const getApiKey = async (provider: string) => await getDurableKey(provider) ?? getEnvApiKey(provider);
-        console.log(`[daemon] Using pi model: ${model.provider}/${model.id} (context: ${model.contextWindow})`);
-        return { model, getApiKey };
-      }
-      console.error(`Error: No credential available for Pi model: ${modelArg}`);
-      process.exit(1);
-    }
-    console.error(`Error: Unknown Pi model: ${modelArg}`);
-    process.exit(1);
-  }
-
-  if (services) {
-    const preferredProviders = ["anthropic", "openai", "openrouter", "google-antigravity", "github-copilot"];
-    for (const provider of preferredProviders) {
-      if (!services.credentials.hasStoredCredential(provider) && !await configuredSecret(provider)) continue;
-      const models = services.modelRegistry.getAll().filter((model) => model.provider === provider && model.provider !== "node-llama-cpp" && model.provider !== "local");
-      const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
-      const picked = sorted.find((model) => !model.reasoning) ?? sorted[0];
-      if (picked) {
-        const getApiKey = async (requestedProvider: string) => await getDurableKey(requestedProvider) ?? getEnvApiKey(requestedProvider);
-        console.log(`[daemon] Using persisted Pi auth: ${provider}/${picked.id} (context: ${picked.contextWindow})`);
-        return { model: picked, getApiKey };
-      }
-    }
-  }
-
-  // Optional legacy environment compatibility.
-  for (const provider of getProviders()) {
-    const key = getEnvApiKey(provider);
-    if (!key) continue;
-    const models = services?.modelRegistry.getAll().filter((model) => model.provider === provider) ?? [];
-    const sorted = [...models].sort((a, b) => (b.contextWindow ?? 0) - (a.contextWindow ?? 0));
-    const picked = sorted.find((model) => !model.reasoning) ?? sorted[0];
-    if (picked) return { model: picked, getApiKey: async (requestedProvider: string) => getEnvApiKey(requestedProvider) };
-  }
-
-  // Preserve the legacy CLI's QMD compatibility fallback.
-  const configPath = join(homedir(), ".config", "qmd", "index.yml");
-  if (existsSync(configPath)) {
-    const cfg = parse(readFileSync(configPath, "utf-8"));
-    const chat = cfg?.providers?.chat;
-    if (chat?.url && chat?.key) {
-      const model = {
-        id: chat.model || "MiniMax-M2.7-highspeed", name: chat.model || "MiniMax-M2.7-highspeed", provider: "custom",
-        api: chat.api === "anthropic" ? "anthropic-messages" as const : "openai-completions" as const,
-        baseUrl: chat.url, reasoning: false, input: ["text" as const],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 196000, maxTokens: 8192,
-      };
-      return { model, getApiKey: async (_provider: string) => chat.key as string };
-    }
-  }
-
-  console.error("Error: No LLM available. Configure persisted Pi auth or ~/.pi/para/secrets.json (legacy env/QMD configuration is also supported).");
-  process.exit(1);
-}
+import { realpathSync } from "node:fs";
+import { formatLegacyDaemonRemoval, isLegacyDaemonBinary, isLegacyDaemonCommand } from "./cli-legacy.js";
 
 // -- CLI ---------------------------------------------------------------------
+
+async function resolveWikiDir(): Promise<string> {
+  const defaultWikiDir = join(homedir(), ".pi", "wiki");
+  try {
+    const { loadParaConfig } = await import("./config.js");
+    return (await loadParaConfig()).paths.wikiDir;
+  } catch {
+    return defaultWikiDir;
+  }
+}
 
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
-  const wikiDir = join(homedir(), ".pi", "wiki");
 
-  if (isLegacyDaemonCommand(command)) {
-    console.warn(formatLegacyDaemonWarning(command));
-    console.warn("");
+  if (isLegacyDaemonBinary(process.argv[1]) || isLegacyDaemonCommand(command)) {
+    console.error(formatLegacyDaemonRemoval(command ?? "pi-para-daemon"));
+    process.exitCode = 1;
+    return;
   }
 
   switch (command) {
@@ -158,6 +56,7 @@ async function main() {
     }
 
     case "tasks": {
+      const wikiDir = await resolveWikiDir();
       const sub = args[1] ?? "list";
       const {
         listSchedulerTasks,
@@ -192,6 +91,7 @@ async function main() {
     }
 
     case "capture-recent": {
+      const wikiDir = await resolveWikiDir();
       const hoursIdx = args.indexOf("--hours");
       const hours = hoursIdx >= 0 ? parseInt(args[hoursIdx + 1] ?? "24") : 24;
       const { queueCaptureRecent, formatQueueCaptureRecentResult } = await import("./scheduler/controls.js");
@@ -226,64 +126,6 @@ async function main() {
       break;
     }
 
-    case "start": {
-      const modelIdx = args.indexOf("--model");
-      const modelArg = modelIdx >= 0 ? args[modelIdx + 1] : undefined;
-      const { model, getApiKey } = await createModel(modelArg);
-
-      // Load web wiki config
-      let webWiki: { enabled: boolean; host: string; port: number } | undefined;
-      try {
-        const { readFileSync } = await import("node:fs");
-        const configPath = join(homedir(), ".pi", "wiki", "config.json");
-        const raw = readFileSync(configPath, "utf-8");
-        const config = JSON.parse(raw);
-        if (config.webWiki?.enabled) {
-          webWiki = {
-            enabled: true,
-            host: config.webWiki.host ?? "0.0.0.0",
-            port: config.webWiki.port ?? 10973,
-          };
-        }
-      } catch {
-        // No config or parse error — skip web wiki
-      }
-
-      const daemon = new Daemon({ wikiDir, model: model as any, getApiKey, webWiki });
-
-      process.on("SIGINT", async () => {
-        await daemon.stop();
-        process.exit(0);
-      });
-      process.on("SIGTERM", async () => {
-        await daemon.stop();
-        process.exit(0);
-      });
-
-      await daemon.start();
-
-      // Keep process alive
-      await new Promise(() => {});
-      break;
-    }
-
-    case "stop": {
-      const state = new StateDB(wikiDir);
-      const pid = state.getState("daemon_pid");
-      state.close();
-      if (pid) {
-        try {
-          process.kill(parseInt(pid), "SIGTERM");
-          console.log(`Sent SIGTERM to daemon (PID ${pid})`);
-        } catch {
-          console.log(`Daemon not running (PID ${pid} not found)`);
-        }
-      } else {
-        console.log("No daemon PID recorded.");
-      }
-      break;
-    }
-
     case "status": {
       const json = args.includes("--json");
       const { getPiParaStatus, formatPiParaStatus } = await import("./status.js");
@@ -291,114 +133,6 @@ async function main() {
       console.log(json ? JSON.stringify(result, null, 2) : formatPiParaStatus(result));
       break;
     }
-
-    case "legacy-status": {
-      const state = new StateDB(wikiDir);
-      const pid = state.getState("daemon_pid");
-      const startedAt = state.getState("daemon_started_at");
-      const history = state.getHistory(undefined, 5);
-      const failed = state.getFailed();
-      state.close();
-
-      let running = false;
-      if (pid) {
-        try {
-          process.kill(parseInt(pid), 0);
-          running = true;
-        } catch {}
-      }
-
-      console.log(`Daemon: ${running ? `running (PID ${pid})` : "not running"}`);
-      if (startedAt) console.log(`Started: ${startedAt}`);
-      console.log(`Failed: ${failed.length}`);
-      console.log(`\nRecent history:`);
-      for (const h of history) {
-        const status = h.error ? `ERROR: ${h.error.slice(0, 50)}` : `${h.pagesCreated.length} pages`;
-        console.log(`  ${h.processedAt} | ${h.scope} | ${status}`);
-      }
-      break;
-    }
-
-    case "process": {
-      const sessionFile = args[1];
-      if (!sessionFile) {
-        console.error("Usage: pi-para-daemon process <session_file>");
-        process.exit(1);
-      }
-      const modelIdx2 = args.indexOf("--model");
-      const modelArg2 = modelIdx2 >= 0 ? args[modelIdx2 + 1] : undefined;
-      const { model, getApiKey } = await createModel(modelArg2);
-      const daemon = new Daemon({ wikiDir, model: model as any, getApiKey });
-      await daemon.start();
-      await daemon.processOne(sessionFile);
-      await daemon.stop();
-      break;
-    }
-
-    case "process-recent": {
-      const hoursIdx = args.indexOf("--hours");
-      const hours = hoursIdx >= 0 ? parseInt(args[hoursIdx + 1] ?? "24") : 24;
-      const cutoff = Date.now() - hours * 60 * 60 * 1000;
-
-      // Find recent sessions from registry
-      const watcher = new RegistryWatcher(wikiDir, () => {});
-      const entries = watcher.getAllEntries().filter((e) => {
-        const ts = new Date(e.timestamp).getTime();
-        return ts > cutoff;
-      });
-
-      const state = new StateDB(wikiDir);
-      const unprocessed = entries.filter((e) => !state.isProcessed(e.sessionPath));
-      state.close();
-
-      if (unprocessed.length === 0) {
-        console.log(`No unprocessed sessions in the last ${hours} hour(s).`);
-        break;
-      }
-
-      console.log(`Found ${unprocessed.length} unprocessed session(s)`);
-      const { model, getApiKey } = await createModel();
-      const daemon = new Daemon({ wikiDir, model: model as any, getApiKey });
-      await daemon.start();
-      for (const entry of unprocessed) {
-        await daemon.processOne(entry.sessionPath);
-      }
-      await daemon.stop();
-      break;
-    }
-
-    case "retry-failed": {
-      const { model, getApiKey } = await createModel();
-      const daemon = new Daemon({ wikiDir, model: model as any, getApiKey });
-      await daemon.start();
-      await daemon.retryFailed();
-      await daemon.stop();
-      break;
-    }
-
-    case "history": {
-      const scopeIdx = args.indexOf("--scope");
-      const scope = scopeIdx >= 0 ? args[scopeIdx + 1] : undefined;
-      const state = new StateDB(wikiDir);
-      const history = state.getHistory(scope, 20);
-      state.close();
-
-      if (history.length === 0) {
-        console.log("No processing history.");
-        break;
-      }
-
-      for (const h of history) {
-        const status = h.error
-          ? `ERROR: ${h.error.slice(0, 60)}`
-          : h.pagesCreated.length > 0
-            ? `${h.pagesCreated.length} page(s): ${h.pagesCreated.join(", ")}`
-            : "skipped";
-        console.log(`${h.processedAt} | ${h.scope} | ${status}`);
-      }
-      break;
-    }
-
 
     default:
       console.log(`pi-para — PARA wiki extension CLI
@@ -416,14 +150,7 @@ Primary commands:
   providers set-secret <name> <value>
   providers remove-secret <name>
 
-Legacy compatibility commands:
-  start              Deprecated daemon foreground mode
-  stop               Deprecated daemon stop
-  legacy-status      Legacy daemon status and recent history
-  process <file>     Process a single session file
-  process-recent     Process unprocessed sessions (--hours N, default 24)
-  retry-failed       Retry all failed sessions
-  history            Show processing history (--scope NAME to filter)
+The legacy daemon commands were removed in 0.7; use tasks and doctor instead.
 
 Credential policy:
   Use persisted Pi auth or ~/.pi/para/secrets.json. Setup does not use env vars for API keys.`);
@@ -431,7 +158,16 @@ Credential policy:
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function isMainModule(entryPath: string | undefined): boolean {
+  if (!entryPath) return false;
+  try {
+    return fileURLToPath(import.meta.url) === realpathSync(entryPath);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule(process.argv[1])) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);

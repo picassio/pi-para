@@ -54,20 +54,6 @@ export function setCaptureModel(config: ParaUserConfig, provider: string, model:
   return profile;
 }
 
-export function setWebWikiEnabled(config: ParaUserConfig, enabled: boolean): void {
-  config.webWiki.enabled = enabled;
-}
-
-export function setWebWikiHost(config: ParaUserConfig, host: string): void {
-  config.webWiki.host = host.trim() || config.webWiki.host;
-}
-
-export function setWebWikiPort(config: ParaUserConfig, value: string): number {
-  const parsed = parsePositiveInteger(value, config.webWiki.port);
-  config.webWiki.port = parsed;
-  return parsed;
-}
-
 export function setProviderProfileField(
   profile: ProviderCredentialRef,
   field: "provider" | "baseUrl" | "model" | "apiFormat" | "credentialRef",

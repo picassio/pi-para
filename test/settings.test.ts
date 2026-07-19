@@ -16,9 +16,6 @@ import {
   setProviderDims,
   setProviderProfileField,
   setSearchLimit,
-  setWebWikiEnabled,
-  setWebWikiHost,
-  setWebWikiPort,
   toggleLintAutoFix,
   toggleSearchGraphBoost,
 } from "../src/settings.js";
@@ -49,10 +46,6 @@ describe("settings", () => {
     setCaptureModelAuto(config);
     expect(config.models.capture).toBe("auto");
 
-    setWebWikiEnabled(config, true);
-    setWebWikiHost(config, "0.0.0.0");
-    expect(setWebWikiPort(config, "1234")).toBe(1234);
-    expect(config.webWiki).toMatchObject({ enabled: true, host: "0.0.0.0", port: 1234 });
   });
 
   it("updates embedding/rerank profiles and rejects env credential refs", () => {

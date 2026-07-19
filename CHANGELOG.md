@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Removed
+- Removed the unused Python capture prototypes and compiled bytecode from the package.
+- Removed the unreferenced link-discovery module; finished implementation plans now live under `docs/archive/`.
+- Removed the legacy daemon, watcher, maintainer, Web Wiki bundle, service file, and daemon plan; legacy CLI invocations now exit nonzero with embedded-scheduler guidance.
+
 ## [0.6.7] — 2026-07-18
 
 ### Fixed

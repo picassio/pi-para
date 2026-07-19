@@ -9,7 +9,7 @@
  */
 
 import { join } from "node:path";
-import { homedir, networkInterfaces } from "node:os";
+import { homedir } from "node:os";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { QMDStore } from "qmd-engine";
@@ -22,7 +22,6 @@ import { registerTools } from "./tools.js";
 import { setupContextInjection, markContextDirty } from "./context.js";
 import type { ContextConfig } from "./context.js";
 import { registerCommands } from "./commands.js";
-import { createServer } from "node:http";
 import { startWikiScheduler, stopWikiScheduler } from "./scheduler/index.js";
 import {
   appendCompletedSession,
@@ -59,12 +58,6 @@ interface ParaConfig {
   /** Legacy capture LLM: "provider/model-id" (e.g. "anthropic/claude-sonnet-4").
    *  New config stores this as models.capture; legacy field remains for migration. */
   daemonModel: string | null;
-  /** Web wiki UI settings */
-  webWiki: {
-    enabled: boolean;
-    host: string;
-    port: number;
-  };
 }
 
 function getDefaultConfig(): ParaConfig {
@@ -79,11 +72,6 @@ function getDefaultConfig(): ParaConfig {
     searchIncludeArchives: false,
     searchGraphBoost: true,
     daemonModel: null,
-    webWiki: {
-      enabled: false,
-      host: "0.0.0.0",
-      port: 10973,
-    },
   };
 }
 
@@ -107,41 +95,8 @@ async function loadConfig(): Promise<LoadedRuntimeConfig> {
   }
 }
 
-// -- LAN IP detection --------------------------------------------------------
-
-/** Check if the optional web wiki server is alive on the given port. */
-function checkWebServerAlive(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = createServer().listen(port, "127.0.0.1");
-    req.on("error", (err: NodeJS.ErrnoException) => {
-      req.close();
-      // EADDRINUSE means something is already listening — daemon is running
-      resolve(err.code === "EADDRINUSE");
-    });
-    req.on("listening", () => {
-      // Port is free — no daemon web server
-      req.close();
-      resolve(false);
-    });
-  });
-}
-
 function isPrintModeProcess(argv = process.argv): boolean {
   return argv.includes("-p") || argv.includes("--print") || argv.includes("--mode") && argv[argv.indexOf("--mode") + 1] === "json";
-}
-
-function getLanIp(): string | null {
-  const interfaces = networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    const addrs = interfaces[name];
-    if (!addrs) continue;
-    for (const addr of addrs) {
-      if (addr.family === "IPv4" && !addr.internal) {
-        return addr.address;
-      }
-    }
-  }
-  return null;
 }
 
 // -- Session state -----------------------------------------------------------
@@ -370,27 +325,11 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       }
     }
 
-    // Check if web wiki server is running (don't start our own yet)
-    if (config.webWiki.enabled) {
-      const port = config.webWiki.port;
-      try {
-        const alive = await checkWebServerAlive(port);
-        if (alive) {
-          const lanIp = getLanIp();
-          const url = lanIp ? `http://${lanIp}:${port}` : `http://localhost:${port}`;
-          ctx.ui.setStatus("pi-para", `wiki: ${url}`);
-        } else {
-          ctx.ui.setStatus("pi-para", "wiki: ready (web UI disabled)");
-          if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 5000);
-        }
-      } catch {
-        ctx.ui.setStatus("pi-para", "wiki: ready");
-        if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
-      }
-    } else {
-      ctx.ui.setStatus("pi-para", "wiki: ready");
-      if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
+    if (loadedConfig.userConfig?.webWiki.enabled && !printMode) {
+      ctx.ui.notify("webWiki configuration is ignored because Web Wiki was removed in 0.7.", "warning");
     }
+    ctx.ui.setStatus("pi-para", "wiki: ready");
+    if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
   });
 
   // -- session_tree ----------------------------------------------------------

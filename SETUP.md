@@ -103,7 +103,6 @@ Legacy migration inputs:
 
 ```text
 ~/.pi/wiki/config.json
-~/.pi/wiki/.daemon.sqlite
 ~/.config/qmd/index.yml
 ```
 
@@ -147,7 +146,6 @@ The settings menu writes through the same config service as the CLI. It can conf
 - search limit and graph boost,
 - lint autofix/stale days,
 - capture model,
-- WebWiki host/port/enabled,
 - embedding and rerank provider profiles,
 - local secrets.
 
@@ -197,7 +195,7 @@ Inside Pi:
 /wiki-scheduler capture-history
 ```
 
-`/wiki-daemon` and `pi-para-daemon` remain compatibility aliases for older workflows.
+The `pi-para-daemon` binary name remains only to print migration guidance and exits nonzero.
 
 ## QMD search
 
@@ -251,7 +249,3 @@ pi-para doctor
 ```
 
 Then configure or disable embedding.
-
-### Old daemon/systemd service exists
-
-The old service is no longer required. You can leave it stopped while using the in-process scheduler. Do not start both old daemon capture and the scheduler for the same wiki unless you are intentionally testing legacy behavior.

@@ -54,10 +54,6 @@
       "types": "./dist/tag-registry.d.ts",
       "import": "./dist/tag-registry.js"
     },
-    "./link-discovery": {
-      "types": "./dist/link-discovery.d.ts",
-      "import": "./dist/link-discovery.js"
-    },
     "./redact": {
       "types": "./dist/redact.d.ts",
       "import": "./dist/redact.js"
@@ -145,7 +141,7 @@
   ],
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build": "tsc -p tsconfig.json && node scripts/build-assets.mjs",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "prepack": "npm run build",
     "check": "tsc --noEmit",
     "test": "vitest --run",

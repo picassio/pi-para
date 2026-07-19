@@ -46,7 +46,7 @@ Default user files:
 ~/.pi/wiki/.qmd.sqlite        # QMD SDK search index
 ```
 
-Legacy files such as `~/.pi/wiki/config.json`, `~/.pi/wiki/.daemon.sqlite`, and `~/.config/qmd/index.yml` are still read for migration/compatibility.
+Legacy files such as `~/.pi/wiki/config.json` and `~/.config/qmd/index.yml` are still read for migration/compatibility.
 
 ## Core commands
 
@@ -63,7 +63,6 @@ Legacy files such as `~/.pi/wiki/config.json`, `~/.pi/wiki/.daemon.sqlite`, and 
 | `/wiki-summarize [target]` | Summarize a page/category/all |
 | `/wiki-settings` | Interactive settings for config/providers/scheduler |
 | `/wiki-scheduler [status\|queue\|history\|capture-history]` | Scheduler/capture observability |
-| `/wiki-daemon ...` | Compatibility alias for `/wiki-scheduler` |
 | `/wiki-migrate` | Batch-migrate pages to current schema |
 | `/wiki-project <name> <goal>` | Create/archive project pages |
 
@@ -85,7 +84,7 @@ pi-para providers set-secret <name> <value>
 pi-para providers remove-secret <name>
 ```
 
-`pi-para-daemon` remains as a temporary compatibility binary, but the primary runtime is the in-process scheduler. Legacy daemon status is available as `pi-para legacy-status` for troubleshooting old installs.
+The `pi-para-daemon` binary name is retained only to print migration guidance; its legacy commands were removed in 0.7.
 
 ## Tools available to agents
 
@@ -141,16 +140,6 @@ When Pi is running, pi-para starts an in-process scheduler. It handles:
 - queue/history/lease tracking in `.pi-para.sqlite`.
 
 No background OS service is required. If Pi is closed, queued work resumes on the next Pi session.
-
-## Web Wiki UI
-
-The optional web wiki can be enabled from `/wiki-settings`:
-
-```text
-/wiki-settings → [WebWiki] Enabled
-```
-
-It serves the wiki viewer/editor/graph on the configured host/port.
 
 ## Obsidian compatibility
 

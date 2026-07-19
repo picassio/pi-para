@@ -7,9 +7,7 @@ README.md                     # user overview
 SETUP.md                      # current setup/onboarding
 ARCHITECTURE.md               # runtime architecture
 CONFIGURATION.md              # config schema and credentials
-NO_DAEMON_REFACTOR_ROADMAP.md # implementation roadmap/history
-PROVIDER_MODEL_SELECTION_PLAN.md
-SETUP_SETTINGS_FLOW_PLAN.md
+docs/archive/                 # historical implementation plans
 package.json
 src/
 test/
@@ -23,7 +21,7 @@ skills/
 | Path | Purpose |
 |---|---|
 | `src/index.ts` | Pi extension entry point; registers lifecycle handlers/tools/commands/scheduler |
-| `src/cli.ts` | `pi-para` and compatibility `pi-para-daemon` CLI |
+| `src/cli.ts` | `pi-para` CLI and removed-daemon compatibility message |
 | `src/commands.ts` | Pi slash commands |
 | `src/tools.ts` | Pi tool definitions |
 
@@ -39,7 +37,7 @@ skills/
 | `src/raw.ts` | Raw source storage and session digest helpers |
 | `src/lint.ts` | Wiki health checks/autofix |
 | `src/summarize.ts` | Summary operations |
-| `src/link-utils.ts`, `src/link-discovery.ts`, `src/tag-registry.ts` | Link/tag helpers |
+| `src/link-utils.ts`, `src/tag-registry.ts` | Link/tag helpers |
 
 ### Runtime/search/state
 
@@ -49,7 +47,7 @@ skills/
 | `src/qmd-providers.ts` | Convert pi-para provider profiles into QMD SDK provider config |
 | `src/context.ts` | Wiki context injection into Pi sessions |
 | `src/wiki-tool-guidance.ts` | Shared wiki tool descriptions, prompt snippets, and behavior guidance |
-| `src/state.ts` | Legacy/session capture state DB helpers |
+| `src/state.ts` | Session capture state DB helpers |
 
 ### Config/setup/diagnostics
 
@@ -76,17 +74,12 @@ src/scheduler/
 └── session-capture.ts # completed-session registry and capture task handler
 ```
 
-### Legacy/compatibility
+### Capture processing
 
 | Path | Purpose |
 |---|---|
-| `src/daemon.ts` | Legacy daemon foreground mode |
-| `src/watcher.ts` | Legacy `.completed-sessions` watcher |
-| `src/processor.ts` | Legacy session processor |
+| `src/processor.ts` | Session processor shared by capture workflows |
 | `src/session-tools.ts` | Session exploration tools used by capture |
-| `src/maintainer.ts` | Legacy/maintenance helpers |
-
-New code should avoid adding daemon-only dependencies unless intentionally maintaining compatibility.
 
 ## `test/`
 
@@ -124,8 +117,4 @@ Primary binary:
 pi-para -> dist/cli.js
 ```
 
-Compatibility binary:
-
-```text
-pi-para-daemon -> dist/cli.js
-```
+The `pi-para-daemon` compatibility binary also points to `dist/cli.js` and exits nonzero with scheduler migration guidance.
