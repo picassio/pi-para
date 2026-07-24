@@ -29,6 +29,30 @@ import { StringEnum } from "@earendil-works/pi-ai";
 
 import { loadSession, createSessionTools } from "./session-tools.js";
 import type { LoadedSession } from "./session-tools.js";
+import { appendFileSync, renameSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+const CAPTURE_LOG_MAX_BYTES = 1024 * 1024;
+
+/**
+ * Capture diagnostics go to a file inside the wiki, never stdout/stderr.
+ * The capture scheduler runs inside the live interactive Pi process, where
+ * console output bypasses the TUI renderer and leaks session-derived text
+ * into whatever session is currently active.
+ */
+export function logCapture(wikiDir: string, message: string): void {
+  try {
+    const logPath = join(wikiDir, ".capture.log");
+    try {
+      if (statSync(logPath).size > CAPTURE_LOG_MAX_BYTES) renameSync(logPath, `${logPath}.old`);
+    } catch {
+      // Missing log file is fine.
+    }
+    appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`, "utf-8");
+  } catch {
+    // Logging must never break or leak from capture.
+  }
+}
 
 // -- Types -------------------------------------------------------------------
 
@@ -350,7 +374,7 @@ export async function processSession(
     await agent.prompt(promptText);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[processor] Agent error: ${errMsg}`);
+    logCapture(wikiDir, `Agent error (${scope}): ${errMsg}`);
     return {
       pagesCreated: [],
       pagesUpdated: [],
@@ -359,20 +383,11 @@ export async function processSession(
     };
   }
 
-  // Debug: log what the agent did
+  // Debug: record counts only — never message content, which is distilled
+  // from the captured session and must not leave the wiki directory.
   const msgCount = agent.state.messages.length;
   const toolCalls = agent.state.messages.filter(m => m.role === "toolResult").length;
-  const lastMsg = agent.state.messages[msgCount - 1];
-  let lastContent = "";
-  if (lastMsg && "content" in lastMsg) {
-    const c = lastMsg.content;
-    if (typeof c === "string") lastContent = c.slice(0, 200);
-    else if (Array.isArray(c)) {
-      const tb = c.find((b: any) => b.type === "text") as { text: string } | undefined;
-      if (tb) lastContent = tb.text.slice(0, 200);
-    }
-  }
-  console.log(`[processor] Agent finished: ${msgCount} messages, ${toolCalls} tool results. Last: ${lastContent}`);
+  logCapture(wikiDir, `Agent finished (${scope}): ${msgCount} messages, ${toolCalls} tool results`);
 
   // 6. Extract what was written from agent's messages
   const pagesCreated: string[] = [];

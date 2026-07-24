@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- Background session capture no longer prints agent output excerpts or error text to the live terminal. The capture scheduler runs inside the active interactive Pi process, where `console.log`/`console.error` bypass the TUI renderer — a successful capture could leak up to 200 characters of content distilled from the just-ended session into whatever session was currently active. Diagnostics now go to `<wiki>/.capture.log` (size-rotated, git-ignored, never staged), record counts only, and a regression test forbids console output across the entire background capture/scheduler path.
+
 ## [0.7.0] — 2026-07-18
 
 ### Removed (breaking for deprecated daemon aliases)

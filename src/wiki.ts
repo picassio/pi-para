@@ -185,6 +185,7 @@ gepa/output/
 
 # local caches/logs
 *.tmp
+.capture.log*
 `;
 
 // -- Helpers -----------------------------------------------------------------
