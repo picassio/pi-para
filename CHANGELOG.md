@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.2] — 2026-07-30
+
 ### Fixed
 - Fresh sessions no longer hang at startup. The awaited `session_start` handler previously scanned the whole completed-session registry and sha256-hashed every listed session file synchronously (including multi-hundred-MB JSONLs, some listed 90+ times). Startup maintenance (embed drain + capture catch-up) is now deferred 30 seconds (`PI_PARA_STARTUP_DELAY_MS` overrides) on an unref'd timer, runs only in interactive sessions — squad/RPC children just register their own completed sessions — and is cancelled cleanly on shutdown.
 - `isProcessed()` now uses a size+mtime stat fast path and only hashes files whose stat changed; a hash match refreshes the stat cache. Registry-wide catch-up scans cost stat calls instead of gigabytes of hashing.

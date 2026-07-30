@@ -91,8 +91,10 @@ export class StateDB {
     } catch {
       return false;
     }
+    // mtimeMs is a float and loses sub-millisecond precision across
+    // utimes/copy round-trips; compare with a small tolerance. Size is exact.
     if (row.file_size !== null && row.file_mtime_ms !== null &&
-      row.file_size === stat.size && row.file_mtime_ms === Math.floor(stat.mtimeMs)) {
+      row.file_size === stat.size && Math.abs(row.file_mtime_ms - stat.mtimeMs) <= 2) {
       return true;
     }
 
