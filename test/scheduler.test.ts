@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import Database from "better-sqlite3";
 import { acquireLease, getLease, releaseLease, renewLease } from "../src/scheduler/leases.js";
 import { SchedulerStateDB } from "../src/scheduler/state.js";
-import { WikiScheduler, resetSchedulersForTests } from "../src/scheduler/index.js";
+import { WikiScheduler, isCredentialEmbedError, resetSchedulersForTests } from "../src/scheduler/index.js";
 
 describe("scheduler", () => {
   afterEach(() => resetSchedulersForTests());
@@ -282,6 +282,66 @@ describe("scheduler", () => {
       expect(scheduler.state.list()[0]?.status).toBe("failed");
       scheduler.stop();
     } finally {
+      await file.cleanup();
+    }
+  });
+
+  it("classifies credential/billing embed failures", () => {
+    expect(isCredentialEmbedError("embed failed — embed error: API 402 https://openrouter.ai/api/v1/embeddings: out of credits")).toBe(true);
+    expect(isCredentialEmbedError("API 401 unauthorized")).toBe(true);
+    expect(isCredentialEmbedError("API 403 forbidden")).toBe(true);
+    expect(isCredentialEmbedError("API 429 rate limited")).toBe(false);
+    expect(isCredentialEmbedError("API 500 server error")).toBe(false);
+    expect(isCredentialEmbedError("The operation was aborted due to timeout")).toBe(false);
+  });
+
+  it("qmd-embed pauses durably after a 402 and resumes after backoff expiry", async () => {
+    const file = await tempDb();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let embedCalls = 0;
+      let failWith402 = true;
+      const store = {
+        getStatus: async () => ({ hasVectorIndex: false, needsEmbedding: 3 }),
+        embed: async () => {
+          embedCalls++;
+          if (failWith402) {
+            console.error("embed error:", "API 402 https://openrouter.ai/api/v1/embeddings: insufficient credits");
+            return { docsProcessed: 0, chunksEmbedded: 0, errors: 3, durationMs: 5 };
+          }
+          return { docsProcessed: 3, chunksEmbedded: 3, errors: 0, durationMs: 5 };
+        },
+      };
+      const scheduler = new WikiScheduler({
+        wikiDir: file.dir,
+        dbPath: file.dbPath,
+        storeProvider: () => store as any,
+      });
+
+      scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed" });
+      expect(await scheduler.tick()).toBe(1);
+      expect(embedCalls).toBe(1);
+      const history = scheduler.state.listHistory({ taskName: "qmd-embed", limit: 1 })[0];
+      expect(history?.error).toContain("embedding paused until");
+      const backoff = scheduler.state.getValue("qmd-embed-backoff-until");
+      expect(backoff).toBeTruthy();
+      expect(Date.parse(backoff!)).toBeGreaterThan(Date.now());
+
+      // While the backoff is active, embed jobs complete without calling the provider.
+      scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed-2" });
+      await scheduler.tick();
+      expect(embedCalls).toBe(1);
+
+      // Expired backoff resumes embedding; success clears the marker.
+      failWith402 = false;
+      scheduler.state.setValue("qmd-embed-backoff-until", new Date(Date.now() - 1_000).toISOString());
+      scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed-3" });
+      await scheduler.tick();
+      expect(embedCalls).toBe(2);
+      expect(scheduler.state.getValue("qmd-embed-backoff-until")).toBeNull();
+      scheduler.stop();
+    } finally {
+      errorSpy.mockRestore();
       await file.cleanup();
     }
   });

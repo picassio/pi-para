@@ -89,7 +89,28 @@ export class SchedulerStateDB {
         duration_ms INTEGER,
         error TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS scheduler_kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
+  }
+
+  getValue(key: string): string | null {
+    const row = this.db.prepare("SELECT value FROM scheduler_kv WHERE key = ?").get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setValue(key: string, value: string): void {
+    this.db
+      .prepare("INSERT OR REPLACE INTO scheduler_kv (key, value, updated_at) VALUES (?, ?, ?)")
+      .run(key, value, new Date().toISOString());
+  }
+
+  deleteValue(key: string): void {
+    this.db.prepare("DELETE FROM scheduler_kv WHERE key = ?").run(key);
   }
 
   enqueue(taskName: string, payload: unknown, opts: EnqueueOptions = {}): number {

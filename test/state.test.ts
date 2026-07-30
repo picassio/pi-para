@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StateDB } from "../src/state.js";
@@ -95,5 +95,49 @@ describe("page summary cache", () => {
     expect(summaries[0].slug).toBe("new");
     expect(summaries[1].slug).toBe("mid");
     expect(summaries[2].slug).toBe("old");
+  });
+
+  it("isProcessed uses a stat fast path and never re-hashes unchanged files", async () => {
+    const session = join(wikiDir, "session.jsonl");
+    await writeFile(session, "{}\noriginal content", "utf-8");
+    db.recordSuccess(session, "scope", [], []);
+    expect(db.isProcessed(session)).toBe(true);
+
+    // Same size + mtime but different bytes: the stat fast path answers true
+    // WITHOUT hashing — proving no full re-read happens on unchanged stats.
+    const before = await stat(session);
+    await writeFile(session, "{}\nORIGINAL CONTENT", "utf-8"); // same length
+    await utimes(session, before.atime, before.mtime);
+    expect(db.isProcessed(session)).toBe(true);
+
+    // A changed mtime falls back to the hash: content differs → unprocessed.
+    const later = new Date(Date.now() + 5_000);
+    await utimes(session, later, later);
+    expect(db.isProcessed(session)).toBe(false);
+  });
+
+  it("a matching hash under a changed stat refreshes the stat cache", async () => {
+    const session = join(wikiDir, "stable.jsonl");
+    await writeFile(session, "{}\nstable content", "utf-8");
+    db.recordSuccess(session, "scope", [], []);
+
+    // Touch only the mtime: hash still matches, stat cache is refreshed…
+    const later = new Date(Date.now() + 5_000);
+    await utimes(session, later, later);
+    expect(db.isProcessed(session)).toBe(true);
+
+    // …so a subsequent same-size different-content write at that exact mtime
+    // is answered by the refreshed stat fast path.
+    await writeFile(session, "{}\nSTABLE CONTENT", "utf-8");
+    await utimes(session, later, later);
+    expect(db.isProcessed(session)).toBe(true);
+  });
+
+  it("isProcessed is false for deleted files", async () => {
+    const session = join(wikiDir, "gone.jsonl");
+    await writeFile(session, "{}\nbye", "utf-8");
+    db.recordSuccess(session, "scope", [], []);
+    await rm(session);
+    expect(db.isProcessed(session)).toBe(false);
   });
 });

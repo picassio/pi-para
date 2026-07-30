@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { StateDB } from "../src/state.js";
@@ -50,11 +50,18 @@ describe("scheduler session capture", () => {
     }
   });
 
+  /** Age a file's mtime past the active-session quiet window. */
+  async function ageFile(path: string, ageMs = 60 * 60_000) {
+    const past = new Date(Date.now() - ageMs);
+    await utimes(path, past, past);
+  }
+
   it("enqueues unprocessed existing sessions with dedupe", async () => {
     const tmp = await tempWiki();
     try {
       const session = join(tmp.dir, "session.jsonl");
       await writeFile(session, `${JSON.stringify({ cwd: "/repo/proj" })}\nuser`, "utf-8");
+      await ageFile(session);
       const scheduler = new WikiScheduler({ wikiDir: tmp.dir, dbPath: join(tmp.dir, ".pi-para.sqlite") });
       const ids = enqueueCompletedSessions(scheduler, [{ timestamp: "t", sessionPath: session }]);
       const duplicate = enqueueCompletedSessions(scheduler, [{ timestamp: "t", sessionPath: session }]);
@@ -72,6 +79,7 @@ describe("scheduler session capture", () => {
     try {
       const session = join(tmp.dir, "session.jsonl");
       await writeFile(session, "{}\ncontent", "utf-8");
+      await ageFile(session);
       await appendCompletedSession(tmp.dir, session, "t");
       const state = new StateDB(tmp.dir);
       state.recordSuccess(session, "scope", [], []);
@@ -201,6 +209,61 @@ describe("scheduler session capture", () => {
       scheduler.enqueue("capture-session", { sessionPath: session });
       await scheduler.tick();
       expect(scheduler.state.list()[0]?.status).toBe("queued");
+      scheduler.stop();
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
+  it("skips still-active sessions but keeps them registered for a later pass", async () => {
+    const tmp = await tempWiki();
+    try {
+      const active = join(tmp.dir, "active.jsonl");
+      const idle = join(tmp.dir, "idle.jsonl");
+      await writeFile(active, "{}\ngrowing", "utf-8"); // fresh mtime = active
+      await writeFile(idle, "{}\nsettled", "utf-8");
+      await ageFile(idle);
+      await appendCompletedSession(tmp.dir, active, "t1");
+      await appendCompletedSession(tmp.dir, idle, "t2");
+      const scheduler = new WikiScheduler({ wikiDir: tmp.dir, dbPath: join(tmp.dir, ".pi-para.sqlite") });
+      const ids = await enqueueCompletedSessionsFromRegistry(scheduler, tmp.dir, {});
+      expect(ids).toHaveLength(1);
+      const queued = scheduler.state.list("queued");
+      expect(queued).toHaveLength(1);
+      expect((queued[0]!.payload as { sessionPath: string }).sessionPath).toBe(idle);
+      // The active session survives compaction so a later pass retries it.
+      const registry = await readCompletedSessionRegistry(tmp.dir);
+      expect(registry.map((entry) => entry.sessionPath)).toContain(active);
+      scheduler.stop();
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
+  it("compacts the registry: duplicates, processed, and deleted sessions are dropped", async () => {
+    const tmp = await tempWiki();
+    try {
+      const done = join(tmp.dir, "done.jsonl");
+      const pending = join(tmp.dir, "pending.jsonl");
+      await writeFile(done, "{}\ncaptured", "utf-8");
+      await writeFile(pending, "{}\nnot yet", "utf-8");
+      await ageFile(done);
+      await ageFile(pending);
+      // 93 duplicate lines for the same session, one processed, one deleted.
+      for (let i = 0; i < 93; i++) await appendCompletedSession(tmp.dir, pending, `t${i}`);
+      await appendCompletedSession(tmp.dir, done, "td");
+      await appendCompletedSession(tmp.dir, join(tmp.dir, "deleted.jsonl"), "tx");
+      const state = new StateDB(tmp.dir);
+      state.recordSuccess(done, "scope", [], []);
+      const scheduler = new WikiScheduler({ wikiDir: tmp.dir, dbPath: join(tmp.dir, ".pi-para.sqlite") });
+
+      const ids = await enqueueCompletedSessionsFromRegistry(scheduler, tmp.dir, { stateDb: state });
+      expect(ids).toHaveLength(1); // only the unprocessed pending session, once
+
+      const registry = await readCompletedSessionRegistry(tmp.dir);
+      expect(registry).toHaveLength(1);
+      expect(registry[0]!.sessionPath).toBe(pending);
+      state.close();
       scheduler.stop();
     } finally {
       await tmp.cleanup();

@@ -31,7 +31,8 @@ export async function queueCaptureRecent(options: QueueCaptureRecentOptions): Pr
   const scheduler = new WikiScheduler({ wikiDir: options.wikiDir, dbPath, enabled: true });
   const stateDb = new StateDB(options.wikiDir);
   try {
-    const queuedIds = enqueueCompletedSessions(scheduler, eligible, { stateDb });
+    // Explicit user request: capture even sessions that are still fresh.
+    const queuedIds = enqueueCompletedSessions(scheduler, eligible, { stateDb, quietMs: 0 });
     return { scanned: entries.length, eligible: eligible.length, queuedIds };
   } finally {
     stateDb.close();

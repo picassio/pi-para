@@ -1,5 +1,5 @@
-import { appendFile, readFile } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import type { QMDStore } from "qmd-engine";
@@ -62,31 +62,93 @@ export async function appendCompletedSession(
   return { timestamp, sessionPath };
 }
 
+/**
+ * A session file modified this recently is treated as still active: capturing
+ * it now would both re-read a growing file and produce a summary that is
+ * immediately stale, so it stays in the registry for a later pass.
+ */
+export const ACTIVE_SESSION_QUIET_MS = 10 * 60_000;
+
 export async function enqueueCompletedSessionsFromRegistry(
   scheduler: WikiScheduler,
   wikiDir: string,
-  opts: { stateDb?: StateDB } = {},
+  opts: { stateDb?: StateDB; quietMs?: number } = {},
 ): Promise<number[]> {
   const entries = await readCompletedSessionRegistry(wikiDir);
-  return enqueueCompletedSessions(scheduler, entries, opts);
+  const { ids, survivors } = scanCompletedSessions(scheduler, entries, opts);
+  // Compact the registry: keep one line per still-relevant session so the
+  // file (and the startup scan) cannot grow without bound. Processed and
+  // deleted sessions are dropped; unprocessed and still-active ones survive.
+  if (survivors.length < entries.length) {
+    await compactCompletedSessionRegistry(wikiDir, entries, survivors);
+  }
+  return ids;
 }
 
 export function enqueueCompletedSessions(
   scheduler: WikiScheduler,
   entries: CompletedSessionEntry[],
-  opts: { stateDb?: StateDB } = {},
+  opts: { stateDb?: StateDB; quietMs?: number } = {},
 ): number[] {
+  return scanCompletedSessions(scheduler, entries, opts).ids;
+}
+
+function scanCompletedSessions(
+  scheduler: WikiScheduler,
+  entries: CompletedSessionEntry[],
+  opts: { stateDb?: StateDB; quietMs?: number } = {},
+): { ids: number[]; survivors: CompletedSessionEntry[] } {
+  const quietMs = opts.quietMs ?? ACTIVE_SESSION_QUIET_MS;
   const ids: number[] = [];
+  const survivors: CompletedSessionEntry[] = [];
+  const seen = new Set<string>();
   for (const entry of entries) {
+    if (seen.has(entry.sessionPath)) continue;
+    seen.add(entry.sessionPath);
     if (!existsSync(entry.sessionPath)) continue;
+    // Still-active session: skip this pass but keep it registered.
+    try {
+      if (Date.now() - statSync(entry.sessionPath).mtimeMs < quietMs) {
+        survivors.push(entry);
+        continue;
+      }
+    } catch {
+      continue;
+    }
     if (opts.stateDb?.isProcessed(entry.sessionPath)) continue;
+    survivors.push(entry);
     ids.push(scheduler.enqueue(
       "capture-session",
       { sessionPath: entry.sessionPath, scope: detectScopeFromSessionPath(entry.sessionPath) } satisfies CaptureSessionPayload,
       { dedupeKey: `capture-session:${entry.sessionPath}`, priority: 20 },
     ));
   }
-  return ids;
+  return { ids, survivors };
+}
+
+/**
+ * Atomically rewrite the registry with the surviving entries, merging any
+ * lines appended concurrently since `snapshot` was read.
+ */
+async function compactCompletedSessionRegistry(
+  wikiDir: string,
+  snapshot: CompletedSessionEntry[],
+  survivors: CompletedSessionEntry[],
+): Promise<void> {
+  const registryPath = join(wikiDir, ".completed-sessions");
+  try {
+    const snapshotPaths = new Set(snapshot.map((entry) => entry.sessionPath));
+    const current = await readCompletedSessionRegistry(wikiDir);
+    const appendedSinceSnapshot = current.filter((entry) => !snapshotPaths.has(entry.sessionPath));
+    const lines = [...survivors, ...appendedSinceSnapshot]
+      .map((entry) => `${entry.timestamp}|${entry.sessionPath}`)
+      .join("\n");
+    const tmpPath = `${registryPath}.tmp-${process.pid}`;
+    await writeFile(tmpPath, lines ? `${lines}\n` : "", "utf-8");
+    await rename(tmpPath, registryPath);
+  } catch {
+    // Compaction is an optimization; the registry stays valid without it.
+  }
 }
 
 export function createCaptureSessionHandler(deps: CaptureSessionDeps): SchedulerTaskHandler {

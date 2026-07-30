@@ -161,6 +161,8 @@ Controls in-process background work. No OS daemon is required.
 | `intervalMinutes` | Periodic scheduler tick interval |
 | `maxConcurrentTasks` | Local concurrency limit |
 
+Startup maintenance (embed backlog drain and capture catch-up) runs only in interactive sessions, deferred 30 seconds after `session_start` (override with the `PI_PARA_STARTUP_DELAY_MS` environment variable). Non-interactive children (squad workers, RPC probes) skip it and only register their own completed sessions for the next interactive session to process. Sessions modified within the last 10 minutes are considered still active and stay queued for a later pass. Embedding failures caused by credentials/billing (`API 401/402/403`) pause embedding for 6 hours; BM25 search keeps working and embedding resumes automatically.
+
 ### `models`
 
 Role-based model selections. Each value is either `"auto"` or a provider profile.

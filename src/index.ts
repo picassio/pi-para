@@ -128,6 +128,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
 
   let store: QMDStore | null = null;
   let currentScope: ProjectScope | null = null;
+  let startupMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;
   let storeDisabled = false;
 
 
@@ -301,28 +302,44 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       })
       : null;
 
-    // Drain any pre-existing embedding backlog in the background. Startup
-    // opens the store with backgroundEmbed:false (fast print-mode exits), so
-    // without this new pages stayed BM25-only until an explicit embed pass.
-    if (scheduler && embedEnabled && store) {
-      try {
-        scheduler.embedEnabled = true;
-        scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
-        void scheduler.tick();
-      } catch {
-        // Background embedding is best-effort; BM25 search works regardless.
-      }
-    }
-
-    if (scheduler && startupCatchupEnabled) {
-      try {
-        const stateDb = new StateDB(wikiDir);
-        await enqueueCompletedSessionsFromRegistry(scheduler, wikiDir, { stateDb });
-        stateDb.close();
-        void scheduler.tick();
-      } catch {
-        // Startup capture catch-up is best-effort.
-      }
+    // Startup maintenance (embed backlog drain + capture catch-up) is
+    // deliberately deferred and detached: it must never run inside this
+    // awaited session_start handler, where registry scans over large session
+    // files previously froze fresh sessions. It is also skipped entirely in
+    // non-interactive children (squad workers, RPC probes) — they only append
+    // their own completed sessions for the next interactive session to pick up.
+    const interactive = ctx.hasUI === true;
+    if (scheduler && interactive && ((embedEnabled && store) || startupCatchupEnabled)) {
+      const envDelay = Number(process.env.PI_PARA_STARTUP_DELAY_MS);
+      const startupDelayMs = Number.isFinite(envDelay) && envDelay >= 0 ? envDelay : 30_000;
+      startupMaintenanceTimer = setTimeout(() => {
+        startupMaintenanceTimer = null;
+        void (async () => {
+          if (embedEnabled && store) {
+            try {
+              scheduler.embedEnabled = true;
+              scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
+            } catch {
+              // Background embedding is best-effort; BM25 search works regardless.
+            }
+          }
+          if (startupCatchupEnabled) {
+            try {
+              const stateDb = new StateDB(wikiDir);
+              await enqueueCompletedSessionsFromRegistry(scheduler, wikiDir, { stateDb });
+              stateDb.close();
+            } catch {
+              // Startup capture catch-up is best-effort.
+            }
+          }
+          try {
+            await scheduler.tick();
+          } catch {
+            // Tick failures are recorded in scheduler history.
+          }
+        })();
+      }, startupDelayMs);
+      startupMaintenanceTimer.unref?.();
     }
 
     if (loadedConfig.userConfig?.webWiki.enabled && !printMode) {
@@ -364,6 +381,12 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   // -- session_shutdown: register session for scheduler, close store ---------
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    // 0. Cancel any not-yet-fired deferred startup maintenance.
+    if (startupMaintenanceTimer) {
+      clearTimeout(startupMaintenanceTimer);
+      startupMaintenanceTimer = null;
+    }
+
     // 1. Register session as completed (scheduler catch-up processes later)
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (sessionFile) {

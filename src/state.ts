@@ -6,7 +6,7 @@
 
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 export interface PageSummary {
@@ -62,17 +62,46 @@ export class StateDB {
         updated_at TEXT NOT NULL
       );
     `);
+    // Stat fast path for isProcessed(): when size+mtime are unchanged since
+    // the recorded hash, skip re-hashing the whole session file. Critical for
+    // startup catch-up scans over registries with very large session JSONLs.
+    try {
+      this.db.exec("ALTER TABLE processed_sessions ADD COLUMN file_size INTEGER");
+    } catch { /* column exists */ }
+    try {
+      this.db.exec("ALTER TABLE processed_sessions ADD COLUMN file_mtime_ms INTEGER");
+    } catch { /* column exists */ }
   }
 
-  /** Check if a session file has already been processed with the same content. */
+  /**
+   * Check if a session file has already been processed with the same content.
+   * Uses a stat (size+mtime) fast path before falling back to a full content
+   * hash, so registry-wide scans stay cheap even with multi-hundred-MB
+   * session files. A hash match under a changed stat refreshes the cache.
+   */
   isProcessed(sessionPath: string): boolean {
     const row = this.db
-      .prepare("SELECT content_hash FROM processed_sessions WHERE session_path = ?")
-      .get(sessionPath) as { content_hash: string } | undefined;
+      .prepare("SELECT content_hash, file_size, file_mtime_ms FROM processed_sessions WHERE session_path = ?")
+      .get(sessionPath) as { content_hash: string; file_size: number | null; file_mtime_ms: number | null } | undefined;
     if (!row) return false;
 
+    let stat: { size: number; mtimeMs: number };
+    try {
+      stat = statSync(sessionPath);
+    } catch {
+      return false;
+    }
+    if (row.file_size !== null && row.file_mtime_ms !== null &&
+      row.file_size === stat.size && row.file_mtime_ms === Math.floor(stat.mtimeMs)) {
+      return true;
+    }
+
     const currentHash = hashFile(sessionPath);
-    return row.content_hash === currentHash;
+    if (row.content_hash !== currentHash) return false;
+    this.db
+      .prepare("UPDATE processed_sessions SET file_size = ?, file_mtime_ms = ? WHERE session_path = ?")
+      .run(stat.size, Math.floor(stat.mtimeMs), sessionPath);
+    return true;
   }
 
   /** Get the stored hash for a session (or null if not processed). */
@@ -91,11 +120,12 @@ export class StateDB {
     pagesUpdated: string[],
   ): void {
     const hash = hashFile(sessionPath);
+    const stat = statFile(sessionPath);
     this.db
       .prepare(`
         INSERT OR REPLACE INTO processed_sessions
-        (session_path, content_hash, processed_at, scope, pages_created, pages_updated, error)
-        VALUES (?, ?, ?, ?, ?, ?, NULL)
+        (session_path, content_hash, processed_at, scope, pages_created, pages_updated, error, file_size, file_mtime_ms)
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
       `)
       .run(
         sessionPath,
@@ -104,19 +134,23 @@ export class StateDB {
         scope,
         JSON.stringify(pagesCreated),
         JSON.stringify(pagesUpdated),
+        stat?.size ?? null,
+        stat ? Math.floor(stat.mtimeMs) : null,
       );
   }
 
   /** Record a failed processing attempt. */
   recordFailure(sessionPath: string, scope: string, error: string): void {
     const hash = hashFile(sessionPath);
+    const stat = statFile(sessionPath);
     this.db
       .prepare(`
         INSERT OR REPLACE INTO processed_sessions
-        (session_path, content_hash, processed_at, scope, pages_created, pages_updated, error)
-        VALUES (?, ?, ?, ?, '[]', '[]', ?)
+        (session_path, content_hash, processed_at, scope, pages_created, pages_updated, error, file_size, file_mtime_ms)
+        VALUES (?, ?, ?, ?, '[]', '[]', ?, ?, ?)
       `)
-      .run(sessionPath, hash, new Date().toISOString(), scope, error);
+      .run(sessionPath, hash, new Date().toISOString(), scope, error,
+        stat?.size ?? null, stat ? Math.floor(stat.mtimeMs) : null);
   }
 
   /** Get all failed sessions for retry. */
@@ -238,6 +272,14 @@ export class StateDB {
 
   close(): void {
     this.db.close();
+  }
+}
+
+function statFile(filePath: string): { size: number; mtimeMs: number } | null {
+  try {
+    return statSync(filePath);
+  } catch {
+    return null;
   }
 }
 

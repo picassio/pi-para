@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+- Fresh sessions no longer hang at startup. The awaited `session_start` handler previously scanned the whole completed-session registry and sha256-hashed every listed session file synchronously (including multi-hundred-MB JSONLs, some listed 90+ times). Startup maintenance (embed drain + capture catch-up) is now deferred 30 seconds (`PI_PARA_STARTUP_DELAY_MS` overrides) on an unref'd timer, runs only in interactive sessions — squad/RPC children just register their own completed sessions — and is cancelled cleanly on shutdown.
+- `isProcessed()` now uses a size+mtime stat fast path and only hashes files whose stat changed; a hash match refreshes the stat cache. Registry-wide catch-up scans cost stat calls instead of gigabytes of hashing.
+- Sessions modified within the last 10 minutes are treated as still active: they stay registered for a later pass instead of being re-read and re-captured while still growing (previously a long-lived 164MB session was re-captured at every startup).
+- The completed-session registry is compacted on every catch-up scan: duplicates, already-processed, and deleted sessions are dropped (a real-world registry had 2,023 lines for 1,067 unique sessions).
+- Credential/billing embedding failures (`API 401/402/403`, e.g. OpenRouter out of credits) now pause embedding durably for 6 hours instead of retrying at every tick and every session start. The recorded error names the pause window; a later successful embed clears it, and BM25 search is unaffected.
+
 ## [0.7.1] — 2026-07-24
 
 ### Fixed

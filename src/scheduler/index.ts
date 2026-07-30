@@ -158,6 +158,11 @@ export class WikiScheduler {
     // No real embedding provider configured — embed calls would hit the inert
     // shim endpoint (slow TCP timeouts on Windows) and always fail. Skip.
     if (!storeHasApiProviders(store)) return;
+    // A credential/billing failure (401/402/403) cannot heal by retrying every
+    // tick and every session start; it needs a human (top up credits, fix the
+    // key). Pause embedding durably and resume automatically after backoff.
+    const backoffUntil = this.state.getValue(EMBED_BACKOFF_KEY);
+    if (backoffUntil && Date.parse(backoffUntil) > Date.now()) return;
 
     const status = await store.getStatus();
     const pending = status.needsEmbedding ?? 0;
@@ -170,18 +175,39 @@ export class WikiScheduler {
       const diagnostics = [...new Set(attempt.diagnostics)].join(" | ");
       if (!attempt.ok) {
         const reason = attempt.error instanceof Error ? attempt.error.message : String(attempt.error);
-        throw new Error(diagnostics ? `${reason} — ${diagnostics}` : reason);
+        throw this.embedFailure(diagnostics ? `${reason} — ${diagnostics}` : reason);
       }
       const result = attempt.value;
       if (result.errors > 0) {
-        throw new Error(
+        throw this.embedFailure(
           `qmd embed finished with ${result.errors} error(s) (${result.chunksEmbedded} chunk(s) embedded, ${pending} doc(s) were pending)${diagnostics ? ` — ${diagnostics}` : ""}`,
         );
       }
+      this.state.deleteValue(EMBED_BACKOFF_KEY);
     } finally {
       releaseLease(this.state.db, leaseKey, this.holderId);
     }
   }
+
+  /** Record durable backoff for credential/billing embed failures, then return the error. */
+  private embedFailure(message: string): Error {
+    if (isCredentialEmbedError(message)) {
+      const until = new Date(Date.now() + EMBED_CREDENTIAL_BACKOFF_MS).toISOString();
+      try {
+        this.state.setValue(EMBED_BACKOFF_KEY, until);
+      } catch { /* backoff bookkeeping is best-effort */ }
+      return new Error(`${message} — embedding paused until ${until} (credential/billing error; fix the provider and it resumes automatically, BM25 search keeps working)`);
+    }
+    return new Error(message);
+  }
+}
+
+const EMBED_BACKOFF_KEY = "qmd-embed-backoff-until";
+const EMBED_CREDENTIAL_BACKOFF_MS = 6 * 60 * 60_000;
+
+/** Credential/billing embed failures (401/402/403) that retries cannot fix. */
+export function isCredentialEmbedError(message: string): boolean {
+  return /\bAPI 40[123]\b/.test(message);
 }
 
 const schedulers = new Map<string, WikiScheduler>();
