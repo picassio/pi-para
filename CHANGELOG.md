@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.3] — 2026-08-07
+
+### Fixed
+- Interactive sessions no longer stall on a bloated wiki store. The qmd write path never deletes vectors of superseded page generations, so every edit accumulated garbage — observed: 1,070MB store (DB+WAL) for 1,011 docs where 98.5% of 221,330 vector chunks were orphans, making every embed pass a 10–75s event-loop stall. Wiki maintenance now runs qmd's orphaned-vector/content GC at most once per day (`scheduler_kv` bookkeeping, silent, best-effort). One-time recovery of an already-bloated store additionally requires rebuilding the sqlite-vec virtual table (vec0 slabs don't shrink on DELETE/VACUUM) — see the wiki page for the procedure.
+
 ## [0.7.2] — 2026-07-30
 
 ### Fixed

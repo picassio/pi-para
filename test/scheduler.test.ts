@@ -346,3 +346,51 @@ describe("scheduler", () => {
     }
   });
 });
+
+describe("orphaned vector GC", () => {
+  async function tempDb() {
+    const dir = await mkdtemp(join(tmpdir(), "pi-para-gc-"));
+    return { dir, dbPath: join(dir, ".pi-para.sqlite"), cleanup: () => rm(dir, { recursive: true, force: true }) };
+  }
+
+  it("wiki-maintenance runs orphan GC at most once per day and records the result", async () => {
+    const file = await tempDb();
+    try {
+      let gcCalls = 0;
+      const store = {
+        getStatus: async () => ({ hasVectorIndex: true, needsEmbedding: 0 }),
+        internal: {
+          cleanupOrphanedVectors: () => { gcCalls++; return 42; },
+          cleanupOrphanedContent: () => 3,
+        },
+      };
+      const scheduler = new WikiScheduler({
+        wikiDir: file.dir,
+        dbPath: file.dbPath,
+        storeProvider: () => store as any,
+      });
+
+      // Direct call: private method via any-cast (unit surface)
+      (scheduler as any).maybeCollectOrphanedVectors(store);
+      expect(gcCalls).toBe(1);
+      const result = JSON.parse(scheduler.state.getValue("qmd-vector-gc-last-result"));
+      expect(result.chunks).toBe(42);
+      expect(result.hashes).toBe(3);
+
+      // Second call within 24h: skipped
+      (scheduler as any).maybeCollectOrphanedVectors(store);
+      expect(gcCalls).toBe(1);
+
+      // Expired interval: runs again
+      scheduler.state.setValue("qmd-vector-gc-last-run", new Date(Date.now() - 25 * 60 * 60_000).toISOString());
+      (scheduler as any).maybeCollectOrphanedVectors(store);
+      expect(gcCalls).toBe(2);
+
+      // A store without the internal API degrades silently
+      (scheduler as any).maybeCollectOrphanedVectors({});
+      scheduler.stop();
+    } finally {
+      await file.cleanup();
+    }
+  });
+});

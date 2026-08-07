@@ -135,6 +135,12 @@ export class WikiScheduler {
       if (store) await reindex(store);
       this.markDirty();
       await gitCommit(this.wikiDir, "wiki: rebuild index and refresh search");
+      // Orphaned-vector GC: every page edit creates a new content generation
+      // whose old vectors are never deleted by qmd's write path. Left alone,
+      // the store grows unboundedly (observed: 1,070MB for 1,011 docs, 98.5%
+      // garbage) and every embed/search pass slows down until the interactive
+      // session visibly stalls. Bounded daily GC keeps it flat.
+      if (store) this.maybeCollectOrphanedVectors(store);
     } finally {
       releaseLease(this.state.db, leaseKey, this.holderId);
     }
@@ -143,6 +149,29 @@ export class WikiScheduler {
     // embedding failures are recorded/retried instead of breaking maintenance.
     if (this.embedEnabled) {
       this.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
+    }
+  }
+
+  /**
+   * Run orphaned-vector GC at most once per day. DELETEs are fast (ms–s at
+   * healthy sizes); the pathological first run on a badly bloated store is a
+   * one-time cost that prevents the far worse alternative of unbounded growth.
+   */
+  private maybeCollectOrphanedVectors(store: QMDStore): void {
+    try {
+      const last = this.state.getValue(VECTOR_GC_KEY);
+      if (last && Date.now() - Date.parse(last) < VECTOR_GC_INTERVAL_MS) return;
+      // Record the attempt time first so a crashing/slow GC cannot retry-loop.
+      this.state.setValue(VECTOR_GC_KEY, new Date().toISOString());
+      const internal = (store as { internal?: { cleanupOrphanedVectors?: () => number; cleanupOrphanedContent?: () => number } }).internal;
+      if (!internal?.cleanupOrphanedVectors) return;
+      const chunks = internal.cleanupOrphanedVectors();
+      const hashes = internal.cleanupOrphanedContent?.() ?? 0;
+      // Background code in the interactive process must stay silent (no
+      // console); record the outcome durably instead.
+      this.state.setValue(VECTOR_GC_RESULT_KEY, JSON.stringify({ at: new Date().toISOString(), chunks, hashes }));
+    } catch {
+      // GC is best-effort; search and embedding work regardless.
     }
   }
 
@@ -203,6 +232,9 @@ export class WikiScheduler {
 }
 
 const EMBED_BACKOFF_KEY = "qmd-embed-backoff-until";
+const VECTOR_GC_KEY = "qmd-vector-gc-last-run";
+const VECTOR_GC_RESULT_KEY = "qmd-vector-gc-last-result";
+const VECTOR_GC_INTERVAL_MS = 24 * 60 * 60_000;
 const EMBED_CREDENTIAL_BACKOFF_MS = 6 * 60 * 60_000;
 
 /** Credential/billing embed failures (401/402/403) that retries cannot fix. */
