@@ -153,7 +153,7 @@ export class WikiScheduler {
   }
 
   /**
-   * Run orphaned-vector GC at most once per day. DELETEs are fast (ms–s at
+   * Run orphaned-vector GC at most once per hour. DELETEs are fast (ms–s at
    * healthy sizes); the pathological first run on a badly bloated store is a
    * one-time cost that prevents the far worse alternative of unbounded growth.
    */
@@ -234,7 +234,12 @@ export class WikiScheduler {
 const EMBED_BACKOFF_KEY = "qmd-embed-backoff-until";
 const VECTOR_GC_KEY = "qmd-vector-gc-last-run";
 const VECTOR_GC_RESULT_KEY = "qmd-vector-gc-last-result";
-const VECTOR_GC_INTERVAL_MS = 24 * 60 * 60_000;
+// Hourly, not daily: heavy wiki writers accumulate ~50K+ orphaned chunks per
+// day (observed), which regrows the store 6x daily and pushes embed passes
+// back into tens of seconds of event-loop stall. At hourly cadence the
+// orphan set stays small enough that each GC pass completes in milliseconds
+// to a few seconds.
+const VECTOR_GC_INTERVAL_MS = 60 * 60_000;
 const EMBED_CREDENTIAL_BACKOFF_MS = 6 * 60 * 60_000;
 
 /** Credential/billing embed failures (401/402/403) that retries cannot fix. */

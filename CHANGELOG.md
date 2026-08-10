@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.4] — 2026-08-08
+
+### Fixed
+- Orphaned-vector GC now runs hourly instead of daily. At heavy wiki write rates the store accumulated ~50K orphaned chunks per day (observed regrowth 35MB→217MB in one day, embed passes back to 21s average event-loop stalls); hourly GC keeps the orphan set small enough that each pass completes in milliseconds to a few seconds. Note: long-lived sessions keep running the previously loaded extension code — the fix takes effect in sessions started after the update.
+
 ## [0.7.3] — 2026-08-07
 
 ### Fixed

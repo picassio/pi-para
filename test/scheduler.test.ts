@@ -353,7 +353,7 @@ describe("orphaned vector GC", () => {
     return { dir, dbPath: join(dir, ".pi-para.sqlite"), cleanup: () => rm(dir, { recursive: true, force: true }) };
   }
 
-  it("wiki-maintenance runs orphan GC at most once per day and records the result", async () => {
+  it("wiki-maintenance runs orphan GC at most once per hour and records the result", async () => {
     const file = await tempDb();
     try {
       let gcCalls = 0;
@@ -377,12 +377,12 @@ describe("orphaned vector GC", () => {
       expect(result.chunks).toBe(42);
       expect(result.hashes).toBe(3);
 
-      // Second call within 24h: skipped
+      // Second call within the hour: skipped
       (scheduler as any).maybeCollectOrphanedVectors(store);
       expect(gcCalls).toBe(1);
 
       // Expired interval: runs again
-      scheduler.state.setValue("qmd-vector-gc-last-run", new Date(Date.now() - 25 * 60 * 60_000).toISOString());
+      scheduler.state.setValue("qmd-vector-gc-last-run", new Date(Date.now() - 2 * 60 * 60_000).toISOString());
       (scheduler as any).maybeCollectOrphanedVectors(store);
       expect(gcCalls).toBe(2);
 
