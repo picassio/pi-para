@@ -70,7 +70,9 @@ function createMockCtx(
 ): Record<string, unknown> {
   return {
     cwd: overrides.cwd ?? "/tmp/test-project",
-    hasUI: true,
+    // Default to the awaited init path so tests observe completed setup;
+    // the interactive (hasUI) background path has a dedicated test below.
+    hasUI: false,
     ui: {
       notify: vi.fn(),
       setStatus: vi.fn(),
@@ -591,3 +593,29 @@ interface ParaSessionStateShape {
   
   sessionFile: string | null;
 }
+
+describe("interactive background initialization", () => {
+  it("session_start returns immediately with hasUI and completes init in the background", async () => {
+    const pi = createMockPi();
+    const { default: piPara } = await import("../src/index.js");
+    await piPara(pi as never);
+    const ctx = createMockCtx({ hasUI: true });
+
+    const started = performance.now();
+    for (const handler of pi.handlers["session_start"] ?? []) {
+      await handler({ reason: "startup" }, ctx);
+    }
+    const handlerMs = performance.now() - started;
+    expect(handlerMs).toBeLessThan(200); // never blocks the TUI
+
+    // Init still completes: poll until the ready status lands.
+    const setStatus = (ctx.ui as { setStatus: ReturnType<typeof vi.fn> }).setStatus;
+    await vi.waitFor(() => {
+      expect(setStatus).toHaveBeenCalledWith("pi-para", "wiki: ready");
+    }, { timeout: 15_000 });
+
+    for (const handler of pi.handlers["session_shutdown"] ?? []) {
+      await handler({ reason: "exit" }, ctx);
+    }
+  });
+});

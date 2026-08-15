@@ -218,6 +218,24 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   // -- session_start ---------------------------------------------------------
 
   pi.on("session_start", async (_event, ctx) => {
+    // Interactive sessions must NEVER wait on wiki initialization: store
+    // opens, git init, scope detection, and model-service setup have all
+    // intermittently stalled behind cross-process contention (locks, slow
+    // IO, network), blocking the whole TUI at "wiki: indexing...". Run the
+    // complete initialization in the background — wiki tools already
+    // self-heal via retryStoreOpen() when queried before the store is open.
+    // Print/RPC one-shot runs still await: they may query immediately and
+    // exit, so ordering matters more than TUI latency there.
+    if (ctx.hasUI) {
+      void initializeSession(ctx).catch(() => {
+        try { ctx.ui.setStatus("pi-para", "wiki: init failed"); } catch { /* ui gone */ }
+      });
+      return;
+    }
+    await initializeSession(ctx);
+  });
+
+  async function initializeSession(ctx: ExtensionContext): Promise<void> {
     ctx.ui.setStatus("pi-para", "wiki: loading...");
 
     try {
@@ -347,7 +365,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     }
     ctx.ui.setStatus("pi-para", "wiki: ready");
     if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
-  });
+  }
 
   // -- session_tree ----------------------------------------------------------
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.6] — 2026-08-15
+
+### Fixed
+- Interactive sessions never wait on wiki initialization anymore. Store opens, git init, scope detection, and model-service setup intermittently stalled behind cross-process contention (locks, slow IO), freezing the TUI at "wiki: indexing..." — especially when resuming very large sessions with `pi -c`. The complete initialization now runs in the background for interactive sessions (`ctx.hasUI`); wiki tools already self-heal via `retryStoreOpen()` if queried before the store is ready. Print/RPC one-shot runs still await initialization because they may query immediately and exit.
+
 ## [0.7.5] — 2026-08-15
 
 ### Fixed
