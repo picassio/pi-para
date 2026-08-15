@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.5] — 2026-08-15
+
+### Fixed
+- Session start no longer queues behind other sessions' embedding passes. qmd-engine ≥2.6.1 stamps the store schema with `PRAGMA user_version` and skips the write-locked (`BEGIN IMMEDIATE`) schema setup on warm opens, so opening the wiki store is read-only in steady state — a fresh session's `openStore` completes in ~1ms even while another process holds the write lock mid-embed (previously it waited out the full 20–30s pass, shown as a stuck "wiki: indexing..." status).
+
 ## [0.7.4] — 2026-08-08
 
 ### Fixed
