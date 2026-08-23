@@ -16,10 +16,11 @@ const platforms = [
 
 describe("native package bundle", () => {
   it("packs every better-sqlite3 N-API prebuild without running install scripts", () => {
-    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    const npmCli = process.env.npm_execpath;
+    expect(npmCli, "npm_execpath").toBeTruthy();
     const output = execFileSync(
-      npm,
-      ["pack", "--ignore-scripts", "--dry-run", "--json"],
+      process.execPath,
+      [npmCli!, "pack", "--ignore-scripts", "--dry-run", "--json"],
       { cwd: root, encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
     );
     const [{ files }] = JSON.parse(output) as Array<{ files: Array<{ path: string }> }>;

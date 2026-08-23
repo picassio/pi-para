@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.10] — 2026-08-23
+
+### Fixed
+- Made the cross-platform native-bundle gate invoke npm through `process.execPath` and `npm_execpath` instead of spawning `npm.cmd` directly, which Node 22 rejects with `EINVAL` on Windows. No runtime change from 0.7.9; this release provides a fully green Windows-attested delivery of the bundled N-API fix.
+
 ## [0.7.9] — 2026-08-23
 
 ### Fixed
