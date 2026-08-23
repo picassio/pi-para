@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.8] — 2026-08-23
+
+### Fixed
+- Eliminated the remaining native `better-sqlite3` teardown assertion by upgrading both pi-para and qmd-engine to `better-sqlite3` 13.0.3. Version 13 migrated the addon from legacy V8 cleanup hooks to N-API; the installed binary no longer imports `AddEnvironmentCleanupHook` or `RemoveEnvironmentCleanupHook`, removing the crashing mechanism rather than relying only on shutdown timing. Includes qmd-engine 2.6.2.
+
 ## [0.7.7] — 2026-08-23
 
 ### Fixed
