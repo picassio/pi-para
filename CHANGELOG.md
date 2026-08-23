@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.9] — 2026-08-23
+
+### Fixed
+- Restored compiler-free Windows installation while retaining the N-API teardown fix. npm invokes an implicit `node-gyp rebuild` for better-sqlite3 13 on Windows despite bundled prebuilds (`gypfile: false`, upstream #1516). pi-para now bundles better-sqlite3 and all eight platform/architecture prebuilds; qmd-engine 2.6.3 does the same for its nested copy. Windows source CI uses `npm ci --ignore-scripts`, then exercises the bundled runtime through the normal test/build/smoke gates. The publish gate mechanically requires every prebuild in the tarball.
+
 ## [0.7.8] — 2026-08-23
 
 ### Fixed
