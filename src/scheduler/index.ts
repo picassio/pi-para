@@ -32,6 +32,7 @@ export class WikiScheduler {
   private running = false;
   private stopped = false;
   private closed = false;
+  private idleWaiters: Array<() => void> = [];
   private readonly intervalMs: number;
   private readonly enabled: boolean;
   private readonly storeProvider: () => QMDStore | null;
@@ -68,7 +69,21 @@ export class WikiScheduler {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    if (!this.running) this.closeState();
+    if (!this.running) {
+      this.closeState();
+      this.resolveIdleWaiters();
+    }
+  }
+
+  /** Wait until an in-flight task releases its native SQLite resources. */
+  async waitForIdle(): Promise<void> {
+    if (!this.running) return;
+    await new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+  }
+
+  private resolveIdleWaiters(): void {
+    const waiters = this.idleWaiters.splice(0);
+    for (const resolve of waiters) resolve();
   }
 
   private closeState(): void {
@@ -101,6 +116,7 @@ export class WikiScheduler {
     } finally {
       this.running = false;
       if (this.stopped) this.closeState();
+      this.resolveIdleWaiters();
     }
     return processed;
   }
@@ -268,7 +284,7 @@ export function startWikiScheduler(opts: WikiSchedulerOptions): WikiScheduler {
   return scheduler;
 }
 
-export function stopWikiScheduler(wikiDir: string, dbPath?: string): void {
+export async function stopWikiScheduler(wikiDir: string, dbPath?: string): Promise<void> {
   const key = dbPath ?? getParaPaths({ wikiDir }).schedulerDbPath;
   const timer = debounceTimers.get(key);
   if (timer) {
@@ -279,6 +295,7 @@ export function stopWikiScheduler(wikiDir: string, dbPath?: string): void {
   if (!scheduler) return;
   scheduler.stop();
   schedulers.delete(key);
+  await scheduler.waitForIdle();
 }
 
 export function enqueueWikiMaintenance(

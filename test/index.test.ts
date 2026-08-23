@@ -618,4 +618,24 @@ describe("interactive background initialization", () => {
       await handler({ reason: "exit" }, ctx);
     }
   });
+
+  it("shutdown owns and cancels in-flight background initialization", async () => {
+    const pi = createMockPi();
+    await piPara(pi as never);
+    const ctx = createMockCtx({ hasUI: true });
+
+    for (const handler of pi.handlers["session_start"] ?? []) {
+      await handler({ reason: "startup" }, ctx);
+    }
+    // Shut down immediately, while initializeSession is yielded in initWiki.
+    for (const handler of pi.handlers["session_shutdown"] ?? []) {
+      await handler({ reason: "exit" }, ctx);
+    }
+
+    const setStatus = (ctx.ui as { setStatus: ReturnType<typeof vi.fn> }).setStatus;
+    expect(setStatus).not.toHaveBeenCalledWith("pi-para", "wiki: ready");
+    // No detached continuation may update the dead TUI after shutdown returns.
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    expect(setStatus).not.toHaveBeenCalledWith("pi-para", "wiki: ready");
+  });
 });

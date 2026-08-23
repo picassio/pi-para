@@ -123,9 +123,15 @@ describe("scheduler", () => {
       scheduler.enqueue("slow", {});
       const tick = scheduler.tick();
       scheduler.stop();
-      release();
+      let idleResolved = false;
+      const idle = scheduler.waitForIdle().then(() => { idleResolved = true; });
+      await Promise.resolve();
+      expect(idleResolved).toBe(false);
 
+      release();
       await expect(tick).resolves.toBe(1);
+      await idle;
+      expect(idleResolved).toBe(true);
     } finally {
       await file.cleanup();
     }

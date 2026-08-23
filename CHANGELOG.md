@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.7] — 2026-08-23
+
+### Fixed
+- Prevented native `better-sqlite3` teardown crashes (`RemoveEnvironmentCleanupHook: Assertion failed: (env) != nullptr`) when quitting, resuming, forking, or switching sessions while interactive wiki initialization was still running. Background initialization is now lifecycle-owned: shutdown cancels later stages, awaits the in-flight initializer and deferred maintenance, prevents post-shutdown status/scheduler work, waits for active scheduler SQLite tasks to become idle, and only then closes the QMD store.
+
 ## [0.7.6] — 2026-08-15
 
 ### Fixed

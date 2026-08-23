@@ -129,6 +129,10 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   let store: QMDStore | null = null;
   let currentScope: ProjectScope | null = null;
   let startupMaintenanceTimer: ReturnType<typeof setTimeout> | null = null;
+  let startupMaintenancePromise: Promise<void> | null = null;
+  let readyStatusTimer: ReturnType<typeof setTimeout> | null = null;
+  let initializationPromise: Promise<void> | null = null;
+  let sessionClosing = false;
   let storeDisabled = false;
 
 
@@ -158,14 +162,19 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   // This handles cases where the db was temporarily locked or had transient errors.
   let storeRetrying = false;
   async function retryStoreOpen(): Promise<boolean> {
-    if (storeRetrying) return false;
+    if (storeRetrying || sessionClosing) return false;
     storeRetrying = true;
     try {
-      store = await openStore(wikiDir, {
+      const reopenedStore = await openStore(wikiDir, {
         paraConfig: loadedConfig.userConfig ?? undefined,
         secretsPath: loadedConfig.secretsPath ?? undefined,
         backgroundEmbed: false,
       });
+      if (sessionClosing) {
+        await closeStore(reopenedStore);
+        return false;
+      }
+      store = reopenedStore;
       storeDisabled = false;
       markContextDirty(); // rebuild context now that store works
       return true;
@@ -221,18 +230,26 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     // Interactive sessions must NEVER wait on wiki initialization: store
     // opens, git init, scope detection, and model-service setup have all
     // intermittently stalled behind cross-process contention (locks, slow
-    // IO, network), blocking the whole TUI at "wiki: indexing...". Run the
-    // complete initialization in the background — wiki tools already
-    // self-heal via retryStoreOpen() when queried before the store is open.
-    // Print/RPC one-shot runs still await: they may query immediately and
-    // exit, so ordering matters more than TUI latency there.
+    // IO, network), blocking the whole TUI at "wiki: indexing...". Keep the
+    // work in the background, but retain its promise: session_shutdown MUST
+    // await it before Node tears down native better-sqlite3 resources.
+    // Print/RPC one-shot runs still await because they may query then exit.
+    sessionClosing = false;
+    const pending = initializeSession(ctx);
+    initializationPromise = pending;
+    void pending.finally(() => {
+      if (initializationPromise === pending) initializationPromise = null;
+    }).catch(() => { /* the owning path reports initialization failures */ });
+
     if (ctx.hasUI) {
-      void initializeSession(ctx).catch(() => {
-        try { ctx.ui.setStatus("pi-para", "wiki: init failed"); } catch { /* ui gone */ }
+      void pending.catch(() => {
+        if (!sessionClosing) {
+          try { ctx.ui.setStatus("pi-para", "wiki: init failed"); } catch { /* ui gone */ }
+        }
       });
       return;
     }
-    await initializeSession(ctx);
+    await pending;
   });
 
   async function initializeSession(ctx: ExtensionContext): Promise<void> {
@@ -241,30 +258,42 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     try {
       await initWiki(wikiDir);
     } catch (err) {
-      ctx.ui.notify(
-        `Wiki init failed: ${err instanceof Error ? err.message : String(err)}`,
-        "error",
-      );
+      if (!sessionClosing) {
+        ctx.ui.notify(
+          `Wiki init failed: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
+      }
     }
+    if (sessionClosing) return;
 
     ctx.ui.setStatus("pi-para", "wiki: indexing...");
     storeDisabled = false;
     try {
-      store = await openStore(wikiDir, {
+      const openedStore = await openStore(wikiDir, {
         paraConfig: loadedConfig.userConfig ?? undefined,
         secretsPath: loadedConfig.secretsPath ?? undefined,
         backgroundEmbed: false,
       });
+      if (sessionClosing) {
+        await closeStore(openedStore);
+        return;
+      }
+      store = openedStore;
     } catch (err) {
       store = null;
       storeDisabled = true;
-      ctx.ui.notify(
-        `Wiki search disabled: ${err instanceof Error ? err.message : String(err)}`,
-        "warning",
-      );
+      if (!sessionClosing) {
+        ctx.ui.notify(
+          `Wiki search disabled: ${err instanceof Error ? err.message : String(err)}`,
+          "warning",
+        );
+      }
     }
+    if (sessionClosing) return;
 
     currentScope = await detectScope(ctx.cwd);
+    if (sessionClosing) return;
 
     const savedState = reconstructState(ctx);
     if (savedState?.lastScope.source === "config") {
@@ -305,6 +334,7 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     } catch {
       // Capture handler registration is best-effort; manual capture remains available.
     }
+    if (sessionClosing) return;
 
     const embedEnabled = loadedConfig.userConfig?.qmd.embedEnabled !== false;
     const schedulerEnabled = !printMode && schedulerConfig?.enabled !== false;
@@ -332,8 +362,9 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       const startupDelayMs = Number.isFinite(envDelay) && envDelay >= 0 ? envDelay : 30_000;
       startupMaintenanceTimer = setTimeout(() => {
         startupMaintenanceTimer = null;
-        void (async () => {
-          if (embedEnabled && store) {
+        if (sessionClosing) return;
+        const maintenance = (async () => {
+          if (embedEnabled && store && !sessionClosing) {
             try {
               scheduler.embedEnabled = true;
               scheduler.enqueue("qmd-embed", {}, { dedupeKey: "qmd-embed", priority: 5 });
@@ -356,6 +387,10 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
             // Tick failures are recorded in scheduler history.
           }
         })();
+        startupMaintenancePromise = maintenance;
+        void maintenance.finally(() => {
+          if (startupMaintenancePromise === maintenance) startupMaintenancePromise = null;
+        }).catch(() => { /* maintenance is best-effort */ });
       }, startupDelayMs);
       startupMaintenanceTimer.unref?.();
     }
@@ -363,8 +398,14 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
     if (loadedConfig.userConfig?.webWiki.enabled && !printMode) {
       ctx.ui.notify("webWiki configuration is ignored because Web Wiki was removed in 0.7.", "warning");
     }
+    if (sessionClosing) return;
     ctx.ui.setStatus("pi-para", "wiki: ready");
-    if (!printMode) setTimeout(() => ctx.ui.setStatus("pi-para", undefined), 3000);
+    if (!printMode) {
+      readyStatusTimer = setTimeout(() => {
+        readyStatusTimer = null;
+        if (!sessionClosing) ctx.ui.setStatus("pi-para", undefined);
+      }, 3000);
+    }
   }
 
   // -- session_tree ----------------------------------------------------------
@@ -399,10 +440,31 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
   // -- session_shutdown: register session for scheduler, close store ---------
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    // 0. Cancel any not-yet-fired deferred startup maintenance.
+    // 0. Own the complete initializer lifecycle. Returning while its native
+    // qmd/better-sqlite3 work is still in flight can destroy V8 first and
+    // crash in Statement::~Statement / RemoveEnvironmentCleanupHook.
+    sessionClosing = true;
     if (startupMaintenanceTimer) {
       clearTimeout(startupMaintenanceTimer);
       startupMaintenanceTimer = null;
+    }
+    if (readyStatusTimer) {
+      clearTimeout(readyStatusTimer);
+      readyStatusTimer = null;
+    }
+    if (initializationPromise) {
+      try {
+        await initializationPromise;
+      } catch {
+        // Initialization errors were already surfaced by the owning path.
+      }
+    }
+    if (startupMaintenancePromise) {
+      try {
+        await startupMaintenancePromise;
+      } catch {
+        // Maintenance is best-effort, but must settle before native teardown.
+      }
     }
 
     // 1. Register session as completed (scheduler catch-up processes later)
@@ -415,8 +477,8 @@ export default async function piPara(pi: ExtensionAPI): Promise<void> {
       }
     }
 
-    // 2. Stop scheduler and close the store (instant)
-    stopWikiScheduler(wikiDir);
+    // 2. Stop scheduler, await any in-flight SQLite work, then close the store.
+    await stopWikiScheduler(wikiDir);
 
     if (store) {
       try {
