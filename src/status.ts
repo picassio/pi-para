@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import Database from "better-sqlite3";
+import { openSqlite, type SqliteDatabase } from "./sqlite.js";
 import { loadParaConfig } from "./config.js";
 import { getParaPaths } from "./paths.js";
 import { listPages, type ParaCategory } from "./wiki.js";
@@ -128,7 +128,7 @@ function getQmdEmbeddingStats(
 ): { hasVectorIndex: boolean; needsEmbedding: number } | null {
   if (!existsSync(dbPath)) return null;
   try {
-    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    const db = openSqlite(dbPath, { readonly: true, fileMustExist: true });
     try {
       const tables = new Set(
         (db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all() as Array<{ name: string }>)

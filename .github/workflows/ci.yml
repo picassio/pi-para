@@ -45,6 +45,33 @@ jobs:
       - name: Fresh-install smoke
         run: npm run smoke:install
 
+  node-sqlite:
+    name: Node 24, node:sqlite driver (as on Android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # As on a phone: no install scripts, and better-sqlite3 never loaded.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
+        env:
+          QMD_SQLITE_DRIVER: node
+
   windows:
     name: Windows typecheck, test, build, smoke
     runs-on: windows-latest

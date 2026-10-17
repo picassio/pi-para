@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { openSqlite, type SqliteDatabase } from "../sqlite.js";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getParaPaths } from "../paths.js";
@@ -38,11 +38,11 @@ export interface SchedulerHistoryItem<T = unknown> {
 }
 
 export class SchedulerStateDB {
-  readonly db: Database.Database;
+  readonly db: SqliteDatabase;
 
   constructor(dbPath = getParaPaths().schedulerDbPath) {
     mkdirSync(dirname(dbPath), { recursive: true });
-    this.db = new Database(dbPath);
+    this.db = openSqlite(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.migrate();
   }

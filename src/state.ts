@@ -4,7 +4,7 @@
  * and what pages were created/updated.
  */
 
-import Database from "better-sqlite3";
+import { openSqlite, type SqliteDatabase } from "./sqlite.js";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -29,11 +29,11 @@ export interface ProcessedSession {
 }
 
 export class StateDB {
-  private db: Database.Database;
+  private db: SqliteDatabase;
 
   constructor(wikiDir: string) {
     const dbPath = join(wikiDir, ".daemon.sqlite");
-    this.db = new Database(dbPath);
+    this.db = openSqlite(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.migrate();
   }

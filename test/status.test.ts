@@ -38,8 +38,8 @@ describe("status", () => {
       });
       // Simulate a real QMD DB shape for the read-only embedding probe
       {
-        const { default: Database } = await import("better-sqlite3");
-        const qmdDb = new Database(join(config.wiki.dir, ".qmd.sqlite"));
+        const { openSqlite } = await import("../src/sqlite.js");
+        const qmdDb = openSqlite(join(config.wiki.dir, ".qmd.sqlite"));
         qmdDb.exec(`
           CREATE TABLE documents (hash TEXT, active INTEGER);
           CREATE TABLE content_vectors (hash TEXT, seq INTEGER);

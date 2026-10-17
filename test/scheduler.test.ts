@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import Database from "better-sqlite3";
+import { openSqlite } from "../src/sqlite.js";
 import { acquireLease, getLease, releaseLease, renewLease } from "../src/scheduler/leases.js";
 import { SchedulerStateDB } from "../src/scheduler/state.js";
 import { WikiScheduler, isCredentialEmbedError, resetSchedulersForTests } from "../src/scheduler/index.js";
@@ -16,7 +16,7 @@ describe("scheduler", () => {
   }
 
   it("acquires, renews, expires, and releases leases atomically", () => {
-    const db = new Database(":memory:");
+    const db = openSqlite(":memory:");
     try {
       const now = new Date("2026-01-01T00:00:00.000Z");
       expect(acquireLease(db, "qmd", "holder-a", { now, ttlMs: 1000 })).toBe(true);

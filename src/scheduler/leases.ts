@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { openSqlite, type SqliteDatabase } from "../sqlite.js";
 import { randomUUID } from "node:crypto";
 
 export interface LeaseRecord {
@@ -9,7 +9,7 @@ export interface LeaseRecord {
   metadataJson: string | null;
 }
 
-export function ensureLeaseSchema(db: Database.Database): void {
+export function ensureLeaseSchema(db: SqliteDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS scheduler_leases (
       lease_key TEXT PRIMARY KEY,
@@ -26,7 +26,7 @@ export function createLeaseHolder(prefix = "pi-para"): string {
 }
 
 export function acquireLease(
-  db: Database.Database,
+  db: SqliteDatabase,
   leaseKey: string,
   holderId: string,
   opts: { ttlMs?: number; now?: Date; metadata?: unknown } = {},
@@ -65,7 +65,7 @@ export function acquireLease(
 }
 
 export function renewLease(
-  db: Database.Database,
+  db: SqliteDatabase,
   leaseKey: string,
   holderId: string,
   opts: { ttlMs?: number; now?: Date } = {},
@@ -81,13 +81,13 @@ export function renewLease(
   return result.changes === 1;
 }
 
-export function releaseLease(db: Database.Database, leaseKey: string, holderId: string): boolean {
+export function releaseLease(db: SqliteDatabase, leaseKey: string, holderId: string): boolean {
   ensureLeaseSchema(db);
   const result = db.prepare("DELETE FROM scheduler_leases WHERE lease_key = ? AND holder_id = ?").run(leaseKey, holderId);
   return result.changes === 1;
 }
 
-export function getLease(db: Database.Database, leaseKey: string): LeaseRecord | null {
+export function getLease(db: SqliteDatabase, leaseKey: string): LeaseRecord | null {
   ensureLeaseSchema(db);
   const row = db.prepare(`
     SELECT lease_key as leaseKey, holder_id as holderId, expires_at as expiresAt,

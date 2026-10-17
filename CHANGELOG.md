@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.8.0] — 2026-10-17
+
+### Added
+- Runs without native addons: with `QMD_SQLITE_DRIVER=node`, pi-para's own SQLite files (state, scheduler queue and leases, status probes) use Node.js's own `node:sqlite`, as qmd-engine 2.7.0 does for its index, and better-sqlite3 is never imported. For platforms better-sqlite3 has no build for, such as Android (pi-phone). The default stays better-sqlite3.
+
+### Changed
+- qmd-engine 2.7.0 (its `node:sqlite` driver and `QMD_SQLITE_VEC_PATH`).
+
 ## [0.7.10] — 2026-08-23
 
 ### Fixed
