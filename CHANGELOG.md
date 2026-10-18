@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.8.6] — 2026-10-18
+
+### Fixed
+- A wiki made before 0.8.5 kept its schema.md, which every session reads in its prompt, with the old open questions example (`- [Gaps in knowledge, unresolved contradictions]`). At startup (`initWiki`), that example becomes the tracked one, with "## Resolved Questions"; the rest of the file stays as it is, and a schema whose example was edited is left alone (`refreshSchemaQuestions`).
+
 ## [0.8.5] — 2026-10-18
 
 ### Added

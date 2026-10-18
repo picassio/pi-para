@@ -154,3 +154,32 @@ describe("open questions", () => {
     expect(context).toMatch(/- Does the folder picker need a key no longer works state\? — on \[\[machines\]\]/);
   });
 });
+
+describe("schema.md's open questions example", () => {
+  it("an old wiki's example becomes the tracked one at startup; the rest stays, and an edited one is left alone", async () => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const { OLD_SCHEMA_QUESTIONS, SCHEMA_QUESTIONS, refreshSchemaQuestions } = await import("../src/wiki.js");
+    const file = join(wikiDir, "schema.md");
+
+    // A new wiki is seeded with the new example already.
+    expect(await readFile(file, "utf-8")).toContain(SCHEMA_QUESTIONS);
+
+    const old = `# Wiki Schema\n\nMy own note stays.\n\n## Insights\n- [Non-obvious findings]\n\n${OLD_SCHEMA_QUESTIONS}\n## Sources\n- [Source URLs]\n`;
+
+    await writeFile(file, old);
+    await initWiki(wikiDir);
+    const now = await readFile(file, "utf-8");
+
+    expect(now).toContain(SCHEMA_QUESTIONS);
+    expect(now).not.toContain("[Gaps in knowledge, unresolved contradictions]");
+    expect(now).toContain("My own note stays.");
+    expect(now).toMatch(/## Resolved Questions\n- \[x\][^\n]*\n\n## Sources/);
+    expect(await refreshSchemaQuestions(wikiDir)).toBe(false);
+
+    const edited = "# Wiki Schema\n\n## Open Questions\n- my own words for them\n";
+
+    await writeFile(file, edited);
+    expect(await refreshSchemaQuestions(wikiDir)).toBe(false);
+    expect(await readFile(file, "utf-8")).toBe(edited);
+  });
+});

@@ -232,6 +232,43 @@ export async function initWiki(wikiDir: string): Promise<void> {
   await seedFile(join(wikiDir, "log.md"), DEFAULT_LOG);
   await seedFile(join(wikiDir, "sessions.md"), DEFAULT_SESSIONS);
   await seedFile(join(wikiDir, ".gitignore"), DEFAULT_GITIGNORE);
+  await refreshSchemaQuestions(wikiDir);
+}
+
+/** The open questions example schema.md had before questions were tracked (pi-para 0.8.4 and earlier). */
+export const OLD_SCHEMA_QUESTIONS = "## Open Questions\n- [Gaps in knowledge, unresolved contradictions]\n";
+/** The example now: tracked open questions, and resolved ones. */
+export const SCHEMA_QUESTIONS =
+  "## Open Questions\n- [ ] (YYYY-MM-DD, #session) [A gap in knowledge or an unresolved contradiction: one line each, with the date asked and the session if known]\n\n## Resolved Questions\n- [x] (YYYY-MM-DD, #session) [The question, as it was] → [its answer: the date and session that resolved it]\n";
+
+/**
+ * A wiki made before open questions were tracked keeps its schema.md, which every session reads in its prompt: its old
+ * open questions example becomes the new one, and the rest of the file stays as the owner has it. A schema without the
+ * old example, edited or already new, is left alone. Idempotent; returns whether it changed the file.
+ */
+export async function refreshSchemaQuestions(wikiDir: string): Promise<boolean> {
+  const file = join(wikiDir, "schema.md");
+  let text: string;
+
+  try {
+    text = await readFile(file, "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+
+    throw error;
+  }
+
+  const normalized = text.replace(/\r\n/g, "\n");
+
+  if (!normalized.includes(OLD_SCHEMA_QUESTIONS) || normalized.includes("## Resolved Questions")) {
+    return false;
+  }
+
+  await writeFile(file, normalized.replace(OLD_SCHEMA_QUESTIONS, () => SCHEMA_QUESTIONS), "utf-8");
+
+  return true;
 }
 
 /**
