@@ -138,6 +138,35 @@ describe("tools", () => {
       expect(page!.body).toContain("SSL certificate management");
     });
 
+    it("keeps dollar signs in edits as written: $`, $&, $' are text, not replacement patterns", async () => {
+      await writePage(wikiDir, makePage("resources", "dollars", { body: "Price: TBD.\n\nNote: none." }));
+      const text = "Inline math is `$x$`; prices like $5 and $&; a $' and a $` too.";
+
+      await findTool(tools, "wiki_edit").execute("call-1", {
+        path: "resources/dollars",
+        edits: [{ oldText: "Price: TBD.", newText: text }],
+      });
+      await findTool(tools, "wiki_write").execute("call-2", {
+        pages: [
+          {
+            category: "resources",
+            slug: "dollars",
+            title: "Dollars",
+            scope: ["global"],
+            tags: [],
+            body: "",
+            mode: "edit",
+            edits: [{ oldText: "Note: none.", newText: "Note: $` stays." }],
+          },
+        ],
+      });
+
+      const page = await readPage(wikiDir, "resources", "dollars");
+      expect(page!.body).toContain(text);
+      expect(page!.body).toContain("Note: $` stays.");
+      expect(page!.body.split("Price").length).toBe(1);
+    });
+
     it("appends to an existing page", async () => {
       await writePage(wikiDir, makePage("resources", "existing-page", {
         body: "Original content.",

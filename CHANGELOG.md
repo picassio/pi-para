@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.8.4] — 2026-10-18
+
+### Fixed
+- `wiki_edit` and `wiki_write`'s edit mode kept `$`` `, `$&`, and `$'` in the new text as replacement patterns, so an edit that held them (inline math, prices, shell) copied parts of the page into itself. The new text is now inserted as written.
+
 ## [0.8.3] — 2026-10-18
 
 ### Changed

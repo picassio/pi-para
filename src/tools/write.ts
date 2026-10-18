@@ -92,7 +92,8 @@ export function createWriteExecute(
         }
         let editedBody = existing.body;
         for (const edit of edits) {
-          editedBody = editedBody.replace(edit.oldText, edit.newText);
+          // A function, so "$&", "$`", "$'" in the new text stay as written (a string replacement reads them as patterns).
+          editedBody = editedBody.replace(edit.oldText, () => edit.newText);
         }
         const linkedBody = redactSecrets(autoLinkSlugs(editedBody, allSlugs, slug)).text;
         const rawScope = pageSpec.scope.length > 0 ? pageSpec.scope : existing.frontmatter.scope;

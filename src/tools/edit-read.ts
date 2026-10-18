@@ -69,7 +69,8 @@ export function createEditExecute(
 
     let editedBody = existing.body;
     for (const edit of params.edits) {
-      editedBody = editedBody.replace(edit.oldText, edit.newText);
+      // A function, so "$&", "$`", "$'" in the new text stay as written (a string replacement reads them as patterns).
+      editedBody = editedBody.replace(edit.oldText, () => edit.newText);
     }
 
     // Surgical edit path: do not scan/autolink/rebuild/reindex the whole wiki.
