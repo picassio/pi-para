@@ -15,6 +15,7 @@ import {
   questionsMaybeAnswered,
   resolvedLine,
 } from "../src/questions.js";
+import { resetSchedulersForTests } from "../src/scheduler/index.js";
 import { createEditExecute, createReadExecute } from "../src/tools/edit-read.js";
 import { initWiki, writePage, type PageFrontmatter, type WikiPage } from "../src/wiki.js";
 
@@ -62,7 +63,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(wikiDir, { recursive: true, force: true });
+  // wiki_edit starts the maintenance scheduler, whose SQLite must close before the folder goes (Windows EBUSY).
+  resetSchedulersForTests();
+  await rm(wikiDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe("open questions", () => {
