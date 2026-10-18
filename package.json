@@ -1,6 +1,6 @@
 {
   "name": "pi-para",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "PARA Knowledge Base Extension for pi — persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
@@ -163,10 +163,10 @@
     "node": ">=22.0.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "^0.80.10",
-    "@earendil-works/pi-ai": "^0.80.10",
-    "@earendil-works/pi-coding-agent": "^0.80.10",
-    "@earendil-works/pi-tui": "^0.80.10",
+    "@earendil-works/pi-agent-core": "^0.80.10 || ^1.0.0",
+    "@earendil-works/pi-ai": "^0.80.10 || ^1.0.0",
+    "@earendil-works/pi-coding-agent": "^0.80.10 || ^1.0.0",
+    "@earendil-works/pi-tui": "^0.80.10 || ^1.0.0",
     "typebox": "^1.1.24"
   },
   "peerDependenciesMeta": {},

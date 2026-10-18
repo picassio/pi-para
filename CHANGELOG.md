@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.8.1] — 2026-10-18
+
+### Changed
+- The pi peer dependencies (`@earendil-works/pi-ai`, `pi-agent-core`, `pi-coding-agent`, `pi-tui`) take pi 1.x as well as 0.80.x, as pi-para runs on today; npm no longer refuses to install pi-para next to pi 1.x.
+
 ## [0.8.0] — 2026-10-17
 
 ### Added
