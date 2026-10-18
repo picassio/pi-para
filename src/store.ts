@@ -11,6 +11,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { createStore, extractSnippet } from "qmd-engine";
+
+/**
+ * pi-para never uses a local model (node-llama-cpp, GGUF): qmd-engine 2.7.1 refuses every way into its local runtime
+ * with QMD_NO_LOCAL_MODELS=1, so no selection, import, download, or fallback can reach one. Embedding and reranking come
+ * from the remote providers in pi-para's config, or not at all (the inert provider below keeps BM25 search working).
+ * qmd reads it at each selection, so setting it here, before any store opens, covers every store pi-para opens.
+ */
+process.env.QMD_NO_LOCAL_MODELS = "1";
 import type { QMDStore, CollectionConfig } from "qmd-engine";
 import { parseFrontmatter } from "./frontmatter.js";
 import type { ParaUserConfig } from "./config.js";

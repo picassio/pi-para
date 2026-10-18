@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.8.2] — 2026-10-18
+
+### Changed
+- Never a local model: pi-para sets `QMD_NO_LOCAL_MODELS=1` (qmd-engine 2.7.1), so qmd refuses to select, import, download, or fall back to node-llama-cpp or a GGUF model anywhere pi-para opens a store. Embedding and reranking use the remote providers in pi-para's config, or do not happen; BM25 search is unaffected.
+- qmd-engine 2.7.1.
+
 ## [0.8.1] — 2026-10-18
 
 ### Changed
