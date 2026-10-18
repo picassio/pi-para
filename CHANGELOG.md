@@ -7,6 +7,9 @@
 ### Changed
 - The pi peer dependencies (`@earendil-works/pi-ai`, `pi-agent-core`, `pi-coding-agent`, `pi-tui`) take pi 1.x as well as 0.80.x, as pi-para runs on today; npm no longer refuses to install pi-para next to pi 1.x.
 
+### Added
+- Exports `./tools/*` (each wiki tool's implementation: `createQueryExecute`, `createWriteExecute`, …, and the schemas), `./state`, `./sqlite`, and `./templates/prompts`, so another host (pi-phone) can run pi-para's tools and capture prompts on its own extension runtime.
+
 ## [0.8.0] — 2026-10-17
 
 ### Added

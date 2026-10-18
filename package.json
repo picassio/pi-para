@@ -117,6 +117,22 @@
     "./wiki-tool-guidance": {
       "types": "./dist/wiki-tool-guidance.d.ts",
       "import": "./dist/wiki-tool-guidance.js"
+    },
+    "./tools/*": {
+      "types": "./dist/tools/*.d.ts",
+      "import": "./dist/tools/*.js"
+    },
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "import": "./dist/state.js"
+    },
+    "./templates/prompts": {
+      "types": "./dist/templates/prompts.d.ts",
+      "import": "./dist/templates/prompts.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.ts",
+      "import": "./dist/sqlite.js"
     }
   },
   "pi": {
