@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.8.3] — 2026-10-18
+
+### Changed
+- qmd-engine 2.7.2: the embeddings of recent search queries are kept, so a wiki_query repeated (or the same search again) sends no embedding request and answers at local speed.
+
 ## [0.8.2] — 2026-10-18
 
 ### Changed
