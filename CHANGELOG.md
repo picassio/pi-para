@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.8.7] — 2026-10-18
+
+### Fixed
+- A write that asked a question was reported as possibly answering it, as a page's other sections share its questions' words. For questions on the page being written, `wiki_write` and `wiki_edit` now count only the lines this write added (and other pages written with it), and never a question the write itself asks.
+
 ## [0.8.6] — 2026-10-18
 
 ### Fixed

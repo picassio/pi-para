@@ -244,14 +244,16 @@ function withoutOpenSection(body: string): string {
 }
 
 /**
- * Open questions anywhere in the wiki that `written` (pages just written, by `category/slug`, with their new body) may
- * answer, best first: the new text, without its own open questions, has at least half of a question's meaningful
- * words, and two or more of them. Questions on the written pages count too: a page that answers its own question should
- * resolve it. Fast and local, for every write; lint finds more by meaning once the search index has the new text.
+ * Open questions anywhere in the wiki that `written` (pages just written, by `category/slug`, with their new body and,
+ * when they existed, their body `before`) may answer, best first: the new text, without its own open questions, has at
+ * least half of a question's meaningful words, and two or more of them. Questions on the written pages count too, a
+ * page that answers its own question should resolve it, but only against what this write added (lines not there
+ * before), and never a question this write itself asks: a page's other sections share its questions' words. Fast and
+ * local, for every write; lint finds more by meaning once the search index has the new text.
  */
 export async function questionsMaybeAnswered(
   wikiDir: string,
-  written: readonly { page: string; text: string }[],
+  written: readonly { page: string; text: string; before?: string }[],
   { max = 5 }: { max?: number } = {},
 ): Promise<(OpenQuestion & { why: string })[]> {
   if (written.length === 0) {
@@ -259,10 +261,38 @@ export async function questionsMaybeAnswered(
   }
 
   const open = await collectOpenQuestions(wikiDir);
-  const text = words(written.map((each) => withoutOpenSection(each.text)).join("\n"));
+  const all = words(written.map((each) => withoutOpenSection(each.text)).join("\n"));
+  /** Per written page: the words of the lines it gained, and the questions it had before. */
+  const own = new Map(
+    written.map((each) => {
+      const had = new Set((each.before ?? "").split("\n").map((line) => line.trim()));
+      const added = withoutOpenSection(each.text)
+        .split("\n")
+        .filter((line) => !had.has(line.trim()))
+        .join("\n");
+
+      return [each.page, { added: words(added), asked: new Set(openQuestionsOf(each.before ?? "").map((question) => question.text)) }];
+    }),
+  );
 
   return open
-    .map((question) => ({ question, ...overlap(question.text, text) }))
+    .flatMap((question) => {
+      const page = own.get(question.page);
+
+      if (page === undefined) {
+        return [{ question, ...overlap(question.text, all) }];
+      }
+
+      if (!page.asked.has(question.text)) {
+        return [];
+      }
+
+      // What this write added to its page, and the other pages it wrote whole.
+      const others = written.filter((each) => each.page !== question.page).map((each) => withoutOpenSection(each.text));
+      const text = new Set([...page.added, ...words(others.join("\n"))]);
+
+      return [{ question, ...overlap(question.text, text) }];
+    })
     .filter(({ shared, share }) => shared >= 2 && share >= 0.5)
     .sort((a, b) => b.share - a.share || b.shared - a.shared)
     .slice(0, max)

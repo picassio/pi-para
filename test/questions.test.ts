@@ -183,3 +183,24 @@ describe("schema.md's open questions example", () => {
     expect(await readFile(file, "utf-8")).toBe(edited);
   });
 });
+
+describe("a page's own questions", () => {
+  it("a page that asks a question is not taken as answering it; only what a later write adds can", async () => {
+    const body = "## Key Facts\n- The build uses linux-bionic-arm64, self-contained, for OfficeCLI on Termux.\n\n## Open Questions\n- [ ] (2026-10-18, #993) Does a linux-bionic-arm64 self-contained build of OfficeCLI run in Termux?\n";
+
+    // Asked in the write that creates the page: not pointed out.
+    expect(await questionsMaybeAnswered(wikiDir, [{ page: "projects/officecli", text: body, before: "" }])).toEqual([]);
+    await writePage(wikiDir, page("projects", "officecli", body));
+
+    // An unrelated edit of the same page: still nothing, though the page shares the question's words.
+    const unrelated = body.replace("## Key Facts\n", "## Key Facts\n- The owner wants a fork.\n");
+
+    expect(await questionsMaybeAnswered(wikiDir, [{ page: "projects/officecli", text: unrelated, before: body }])).toEqual([]);
+
+    // An edit that adds the answer: pointed out.
+    const answered = body.replace("## Key Facts\n", "## Key Facts\n- A linux-bionic-arm64 self-contained OfficeCLI build runs in Termux: tested.\n");
+    const found = await questionsMaybeAnswered(wikiDir, [{ page: "projects/officecli", text: answered, before: body }]);
+
+    expect(found.map((each) => each.page)).toEqual(["projects/officecli"]);
+  });
+});

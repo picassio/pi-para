@@ -124,7 +124,7 @@ export function createEditExecute(
     await gitCommit(wikiDir, params.logSummary ?? `wiki_edit: ${pagePath}`);
     scheduleWikiMaintenance(wikiDir, store, markDirty);
 
-    const maybe = answeredNote(await questionsMaybeAnswered(wikiDir, [{ page: pagePath, text: linkedBody }]));
+    const maybe = answeredNote(await questionsMaybeAnswered(wikiDir, [{ page: pagePath, text: linkedBody, before: existing.body }]));
 
     return {
       content: [{ type: "text", text: `Edited ${pagePath}. Scheduled background index/search refresh.${maybe}` }],

@@ -37,7 +37,7 @@ export function createWriteExecute(
     const pagesWritten: string[] = [];
     const pagesSkipped: string[] = [];
     /** What was written, for the open questions it may answer. */
-    const writtenBodies: { page: string; text: string }[] = [];
+    const writtenBodies: { page: string; text: string; before: string }[] = [];
     const now = new Date().toISOString();
     const scope = getScope();
 
@@ -116,7 +116,7 @@ export function createWriteExecute(
           body: linkedBody,
         };
         await writePage(wikiDir, updatedPage);
-        writtenBodies.push({ page: pagePath, text: updatedPage.body });
+        writtenBodies.push({ page: pagePath, text: updatedPage.body, before: existing?.body ?? "" });
         pagesWritten.push(pagePath + (errors.length > 0 ? ` (${errors.length} edit(s) failed)` : ""));
       } else if (pageSpec.mode === "append" && existing) {
         // Append to existing page body
@@ -136,7 +136,7 @@ export function createWriteExecute(
           },
         };
         await writePage(wikiDir, updatedPage);
-        writtenBodies.push({ page: pagePath, text: updatedPage.body });
+        writtenBodies.push({ page: pagePath, text: updatedPage.body, before: existing?.body ?? "" });
         pagesWritten.push(pagePath);
       } else if (pageSpec.mode === "replace" && existing) {
         // Replace existing page body, update frontmatter
@@ -159,7 +159,7 @@ export function createWriteExecute(
           body: linkedBody,
         };
         await writePage(wikiDir, updatedPage);
-        writtenBodies.push({ page: pagePath, text: updatedPage.body });
+        writtenBodies.push({ page: pagePath, text: updatedPage.body, before: existing?.body ?? "" });
         pagesWritten.push(pagePath);
       } else {
         // Create new page (or mode=create/replace on non-existing)
@@ -184,7 +184,7 @@ export function createWriteExecute(
           body: linkedBody,
         };
         await writePage(wikiDir, newPage);
-        writtenBodies.push({ page: pagePath, text: newPage.body });
+        writtenBodies.push({ page: pagePath, text: newPage.body, before: existing?.body ?? "" });
         pagesWritten.push(pagePath);
       }
     }
