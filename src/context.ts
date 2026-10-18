@@ -9,6 +9,7 @@
  * context is returned on subsequent before_agent_start calls, adding <5ms.
  */
 
+import { collectOpenQuestions, formatOpenQuestions, RESOLVE_HOW } from "./questions.js";
 import type { QMDStore } from "qmd-engine";
 import type {
   ExtensionAPI,
@@ -29,6 +30,8 @@ export interface ContextOptions {
   includeSchema?: boolean; // include schema.md (default true)
   includeIndex?: boolean; // include index.md (default true)
   includeSummaries?: boolean; // include page summaries (default true)
+  /** List the wiki's open questions (default true). */
+  includeOpenQuestions?: boolean;
 }
 
 /** Config subset needed by context injection. */
@@ -45,6 +48,8 @@ const CHARS_PER_TOKEN = 4;
 
 /** Maximum number of pages to include in context injection. */
 export const MAX_CONTEXT_PAGES = 40;
+/** Open questions listed in the context at most: the oldest in scope first, then the rest. */
+export const OPEN_QUESTIONS_IN_CONTEXT = 10;
 
 // -- Schema summary ----------------------------------------------------------
 
@@ -69,7 +74,7 @@ function buildSchemaSummary(fullSchema: string): string {
     "- Tags: kebab-case, no spaces. Don't duplicate scope values as tags.",
     "- Slugs: lowercase, hyphens (e.g. ssl-cert-gotchas)",
     "- Cross-references: use [[slug]] wikilinks. Add a ## Connections section linking related pages.",
-    "- Wiki summary format sections: Topic, Key Facts, Insights, Connections, Open Questions, Sources",
+    "- Wiki summary format sections: Topic, Key Facts, Insights, Connections, Open Questions (`- [ ] (date, #session) question`), Resolved Questions (`- [x] (date, #session) question → answer`), Sources",
     "- Update existing pages for same concept, create new pages for distinct concepts",
     "- Tone: technical, concise, factual",
   ].join("\n");
@@ -198,6 +203,27 @@ export async function buildContext(
       const availableChars = maxChars - usedChars;
       if (titlesBlock.length <= availableChars) {
         parts.push(titlesBlock);
+      }
+    }
+  }
+
+  // 4. The wiki's open questions, this scope's first: a session that knows them can answer one it meets, wherever
+  // it was asked (questions.ts).
+  if (options?.includeOpenQuestions ?? true) {
+    const open = await collectOpenQuestions(wikiDir, { scope });
+
+    if (open.length > 0) {
+      const block = [
+        `## Open Questions in the Wiki (${open.length})`,
+        "",
+        `Still unknown. When your work answers one, resolve it. ${RESOLVE_HOW}`,
+        "",
+        formatOpenQuestions(open, { max: OPEN_QUESTIONS_IN_CONTEXT }),
+      ].join("\n");
+
+      if (usedChars + block.length + 2 <= maxChars) {
+        parts.push(block);
+        usedChars += block.length + 2;
       }
     }
   }

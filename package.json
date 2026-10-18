@@ -1,6 +1,6 @@
 {
   "name": "pi-para",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "PARA Knowledge Base Extension for pi — persistent, LLM-curated personal wiki",
   "type": "module",
   "main": "./dist/index.js",
@@ -33,6 +33,10 @@
     "./lint": {
       "types": "./dist/lint.d.ts",
       "import": "./dist/lint.js"
+    },
+    "./questions": {
+      "types": "./dist/questions.d.ts",
+      "import": "./dist/questions.js"
     },
     "./query": {
       "types": "./dist/query.d.ts",
@@ -172,7 +176,7 @@
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "13.0.3",
-    "qmd-engine": "2.7.2",
+    "qmd-engine": "2.7.3",
     "yaml": "^2.8.2"
   },
   "engines": {

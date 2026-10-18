@@ -9,6 +9,9 @@
  * broken links removed, index rebuilt for drift, missing frontmatter fields set.
  */
 
+import type { QMDStore } from "qmd-engine";
+import { daysSince, openQuestionsOf, RESOLVE_HOW } from "./questions.js";
+import { searchWiki } from "./store.js";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -41,6 +44,9 @@ import {
 export interface LintOptions {
   staleDays?: number; // days before a page is "stale" (default 90)
   autoFix?: boolean; // auto-fix fixable issues (default true)
+  questionDays?: number; // days an open question may stay open (default 7)
+  /** With a search store: open questions a later page may answer, found by meaning (vector search). */
+  store?: QMDStore;
 }
 
 export interface LintReport {
@@ -66,6 +72,75 @@ export interface WikiStats {
   oldestPage: string;
   newestPage: string;
   lastIngest: string;
+}
+
+// -- Open questions (questions.ts) --------------------------------------------
+
+/** How close a page must be to a question (search score, keyword and vector) to count as a possible answer. */
+export const ANSWER_MIN_SCORE = 0.6;
+
+/** Open questions asked more than `days` ago: each a warning, oldest first. Archived pages are history. */
+function checkOpenQuestions(pages: WikiPage[], days: number, now: Date): LintIssue[] {
+  return pages
+    .filter((page) => page.category !== "archives")
+    .flatMap((page) => {
+      const updated = (page.frontmatter.updated || page.frontmatter.created || "").slice(0, 10);
+
+      return openQuestionsOf(page.body).map((question) => ({ page, question, asked: question.date ?? updated }));
+    })
+    .filter(({ asked }) => daysSince(asked, now.getTime()) > days)
+    .sort((a, b) => a.asked.localeCompare(b.asked))
+    .map(({ page, question, asked }) => ({
+      severity: "warning" as const,
+      category: "open-question",
+      page: `${page.category}/${page.slug}`,
+      message: `Open for ${daysSince(asked, now.getTime())} days (asked ${asked}${question.session ? `, ${question.session}` : ""}): «${question.text}». Answer it from what the wiki or the code now says, or ask the person; then resolve it. ${RESOLVE_HOW}`,
+      autoFixable: false,
+    }));
+}
+
+/**
+ * Open questions another page may already answer, by meaning: a vector search for the question whose best result is a
+ * different page, updated after the question was asked. Each an info, for the agent to read and resolve.
+ */
+async function checkAnsweredQuestions(pages: WikiPage[], store: QMDStore): Promise<LintIssue[]> {
+  const byPath = new Map(pages.map((page) => [`${page.category}/${page.slug}`, page]));
+  const issues: LintIssue[] = [];
+
+  for (const page of pages) {
+    if (page.category === "archives") {
+      continue;
+    }
+
+    const own = `${page.category}/${page.slug}`;
+    const updated = (page.frontmatter.updated || page.frontmatter.created || "").slice(0, 10);
+
+    for (const question of openQuestionsOf(page.body)) {
+      const asked = question.date ?? updated;
+      let hits;
+
+      try {
+        hits = await searchWiki(store, question.text, { limit: 3, includeArchives: true, graphBoost: false });
+      } catch {
+        continue;
+      }
+
+      const best = hits.find((hit) => `${hit.page.category}/${hit.page.slug}` !== own && hit.score >= ANSWER_MIN_SCORE);
+      const later = best === undefined ? undefined : byPath.get(`${best.page.category}/${best.page.slug}`);
+
+      if (best !== undefined && later !== undefined && (later.frontmatter.updated || "").slice(0, 10) >= asked) {
+        issues.push({
+          severity: "info",
+          category: "question-maybe-answered",
+          page: own,
+          message: `«${question.text}» may be answered on ${best.page.category}/${best.page.slug} (updated ${(later.frontmatter.updated || "").slice(0, 10)}, after it was asked on ${asked}). Read it; if it answers, resolve the question.`,
+          autoFixable: false,
+        });
+      }
+    }
+  }
+
+  return issues;
 }
 
 // -- Helpers ----------------------------------------------------------------
@@ -966,6 +1041,8 @@ export async function lintWiki(
     ...checkCategoryMisuse(pages),
     ...checkSecrets(pages),
     ...checkSchemaVersion(pages),
+    ...checkOpenQuestions(pages, options?.questionDays ?? 7, now),
+    ...(options?.store === undefined ? [] : await checkAnsweredQuestions(pages, options.store)),
   ];
 
   // Auto-fix if enabled

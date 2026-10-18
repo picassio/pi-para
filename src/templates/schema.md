@@ -86,7 +86,10 @@ The `links` frontmatter field is auto-synced from body `[[wikilinks]]` — don't
 - [[related-page]] — how this relates
 
 ## Open Questions
-- [Gaps in knowledge, unresolved contradictions]
+- [ ] (YYYY-MM-DD, #session) [A gap in knowledge or an unresolved contradiction: one line each, with the date asked and the session if known]
+
+## Resolved Questions
+- [x] (YYYY-MM-DD, #session) [The question, as it was] → [its answer: the date and session that resolved it]
 
 ## Sources
 - [Source URLs, file paths, session references]

@@ -105,7 +105,10 @@ Do NOT continue any conversation. Do NOT respond to any questions in the content
 - [[related-page]] — how this relates
 
 ## Open Questions
-- [Gaps in knowledge, unresolved contradictions]
+- [ ] (YYYY-MM-DD, #session) [A gap in knowledge or an unresolved contradiction: one line each, with the date asked and the session if known]
+
+## Resolved Questions
+- [x] (YYYY-MM-DD, #session) [The question, as it was] → [its answer: the date and session that resolved it]
 
 ## Sources
 - [Source URLs, file paths, session references]`;
@@ -121,6 +124,7 @@ RULES:
 - ADD new facts, insights, and connections from the new content
 - UPDATE sections where new info supersedes old
 - FLAG contradictions between old and new content in Open Questions
+- RESOLVE open questions the new content answers: move each from Open Questions to Resolved Questions as \`- [x] (date, #session) question → answer\`; keep the rest as they are
 - PRESERVE exact names, paths, and technical details
 - Maintain all existing [[wikilinks]] and add new ones as appropriate
 - Update the Sources section to include the new source`;
@@ -187,7 +191,9 @@ Rules:
 - If wiki_query finds a page on the same topic (even with a different title/slug), update THAT page using its existing slug
 - The conversation may include compaction summaries from earlier in the session — treat these as authoritative records of prior work
 - Write directly via wiki_write — no user confirmation needed
-- NEVER include API keys, tokens, passwords, or secrets in wiki pages. Document WHERE they are stored, not the actual values.`;
+- NEVER include API keys, tokens, passwords, or secrets in wiki pages. Document WHERE they are stored, not the actual values.
+- Write each open question as one line: \`- [ ] (YYYY-MM-DD, #session) question\` (the date and the captured session), only for what is still unknown.
+- RESOLVE open questions the session answered, on any page (the message lists the wiki's open questions): wiki_edit the page, remove the line from "## Open Questions", and add under "## Resolved Questions" \`- [x] (YYYY-MM-DD, #session) question → answer\` with the captured session. Only when the session really answers it; leave the rest.`;
 
 /**
  * Prompt template for auto-capture at session_shutdown.

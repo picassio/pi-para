@@ -59,7 +59,7 @@ describe("config", () => {
 
     expect(migrated.wiki.dir).toBe(join("/home/alice", "wiki2"));
     expect(migrated.context).toMatchObject({ maxTokens: 9000, includeSchema: false, includeIndex: false, searchLimit: 17, searchGraphBoost: false });
-    expect(migrated.lint).toEqual({ autoFix: false, staleDays: 30 });
+    expect(migrated.lint).toEqual({ autoFix: false, staleDays: 30, questionDays: 7 });
     expect(migrated.models.capture).toEqual({ provider: "anthropic", model: "claude-sonnet-4-20250514", credentialRef: "pi-auth:anthropic" });
     expect(migrated.webWiki).toMatchObject({ enabled: true, host: "0.0.0.0", port: 1234 });
   });

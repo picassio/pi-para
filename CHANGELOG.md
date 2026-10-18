@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.8.5] — 2026-10-18
+
+### Added
+- Open questions are tracked items (`src/questions.ts`, exported as `pi-para/questions`): `- [ ] (YYYY-MM-DD, #session) question` under "## Open Questions", and once answered `- [x] (YYYY-MM-DD, #session) question → answer` under "## Resolved Questions". Plain bullets on older pages count as open, asked when the page was last updated.
+- Agents learn of them without looking: the wiki context lists the wiki's open questions (this scope's first, oldest first, at most 10); `wiki_read` shows a page's open questions before its body; `wiki_query` lists those of the pages it finds.
+- `wiki_write` and `wiki_edit` say when what was just written may answer an open question on any page (half or more of its key words, two at least), and how to resolve it.
+- `wiki_lint` warns about open questions older than `lint.questionDays` (default 7) and, with a search store, points out pages updated after a question was asked that a search for it ranks first (keyword and vector, score 0.6 or more).
+- The capture prompt and the para skill say to write questions in the tracked format and to resolve the ones a session answered.
+
+### Changed
+- qmd-engine 2.7.3 (`@modelcontextprotocol/sdk` 1.32.1, past GHSA-6qxp-vccf-f47h).
+
 ## [0.8.4] — 2026-10-18
 
 ### Fixed

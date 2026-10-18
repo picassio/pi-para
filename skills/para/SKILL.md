@@ -47,6 +47,15 @@ Write to the wiki immediately when you:
 
 Use `wiki_edit` for surgical updates to existing pages. Use `wiki_write(mode: 'append')` to add new sections and `wiki_write(mode: 'replace')` only for intentional full-page rewrites. Don't defer — context and reasoning degrade with time.
 
+### Open questions: ask them, and close them
+
+A page's "## Open Questions" are tracked items, one line each: `- [ ] (YYYY-MM-DD, #session) question`, with the date you ask it and your session if you know it. They are for what is still unknown, not a to-do list.
+
+- **They come to you:** the prompt lists the wiki's open questions, `wiki_read` and `wiki_query` show the ones on the pages they return, and `wiki_write`/`wiki_edit` say when what you just wrote may answer one, on any page.
+- **When your work answers one, resolve it right away,** wherever it was asked: `wiki_edit` its page, remove its line from "## Open Questions", and add under "## Resolved Questions" `- [x] (YYYY-MM-DD, #session) question → answer` (today, and your session). Put the lasting fact in Key Facts too.
+- **When only the person can answer,** ask them (several at once in one form), then resolve with their answer.
+- `wiki_lint` warns about questions open longer than a week, and points out pages that may already answer them.
+
 ## 4. When Debugging — Search First
 
 **Someone may have solved this before.**

@@ -51,6 +51,8 @@ export interface ParaUserConfig {
   lint: {
     autoFix: boolean;
     staleDays: number;
+    /** Days an open question may stay open before lint warns about it (default 7). */
+    questionDays: number;
   };
   /** Deprecated compatibility input. Preserved when loading but ignored by the runtime. */
   webWiki: {
@@ -120,6 +122,7 @@ export function getDefaultUserConfig(homeDir?: string): ParaUserConfig {
     lint: {
       autoFix: true,
       staleDays: 90,
+      questionDays: 7,
     },
     webWiki: {
       enabled: false,

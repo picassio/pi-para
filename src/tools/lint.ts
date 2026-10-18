@@ -12,7 +12,7 @@ export function createLintExecute(
   wikiDir: string,
   store: QMDStore,
   markDirty: () => void,
-  getLintConfig?: () => { autoFix: boolean; staleDays: number },
+  getLintConfig?: () => { autoFix: boolean; staleDays: number; questionDays?: number },
 ) {
   return async (
     params: { autoFix?: boolean },
@@ -21,6 +21,8 @@ export function createLintExecute(
     const report = await lintWiki(wikiDir, {
       autoFix: params.autoFix ?? configured?.autoFix ?? true,
       staleDays: configured?.staleDays ?? 90,
+      questionDays: configured?.questionDays ?? 7,
+      store,
     });
     if (report.fixed.length > 0) {
       scheduleWikiMaintenance(wikiDir, store, markDirty);

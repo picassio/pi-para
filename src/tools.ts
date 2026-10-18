@@ -39,7 +39,7 @@ export function registerTools(
   getScope: () => ProjectScope,
   markDirty: () => void,
   getGraphBoost?: () => boolean,
-  getLintConfig?: () => { autoFix: boolean; staleDays: number },
+  getLintConfig?: () => { autoFix: boolean; staleDays: number; questionDays?: number },
 ): void {
   const ingestExec = createIngestExecute(wikiDir, store, getScope);
   const queryExec = createQueryExecute(wikiDir, store, getScope, getGraphBoost);

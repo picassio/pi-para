@@ -7,6 +7,22 @@ import { redactSecrets } from "../redact.js";
 import { appendLog, gitCommit, listPages, readIndex, readPage, writePage, type WikiPage } from "../wiki.js";
 import type { WikiReadDetails, WikiWriteDetails } from "./schemas.js";
 import { parsePagePath, scheduleWikiMaintenance } from "./shared.js";
+import { answeredNote, openQuestionsOf, questionsMaybeAnswered, RESOLVE_HOW } from "../questions.js";
+
+/** A read page's open questions, first, so whoever reads it sees what is still unknown and can resolve what it knows. */
+export function openQuestionsNote(body: string): string {
+  const open = openQuestionsOf(body);
+
+  if (open.length === 0) {
+    return "";
+  }
+
+  return [
+    "",
+    `Open questions on this page (${open.length}): resolve any you can answer. ${RESOLVE_HOW}`,
+    ...open.map((question) => `- ${question.text}${question.date ? ` (asked ${question.date}${question.session ? `, ${question.session}` : ""})` : ""}`),
+  ].join("\n");
+}
 
 // -- Factory: wiki_read execute ----------------------------------------------
 
@@ -108,8 +124,10 @@ export function createEditExecute(
     await gitCommit(wikiDir, params.logSummary ?? `wiki_edit: ${pagePath}`);
     scheduleWikiMaintenance(wikiDir, store, markDirty);
 
+    const maybe = answeredNote(await questionsMaybeAnswered(wikiDir, [{ page: pagePath, text: linkedBody }]));
+
     return {
-      content: [{ type: "text", text: `Edited ${pagePath}. Scheduled background index/search refresh.` }],
+      content: [{ type: "text", text: `Edited ${pagePath}. Scheduled background index/search refresh.${maybe}` }],
       details: {
         pagesWritten: [pagePath],
         pagesSkipped: [],
@@ -153,7 +171,7 @@ export function createReadExecute(wikiDir: string) {
           .join("\n");
 
         return {
-          content: [{ type: "text", text: `${header}\n\n${page.body}` }],
+          content: [{ type: "text", text: `${header}${openQuestionsNote(page.body)}\n\n${page.body}` }],
           details: { found: true, path: `${parsed.category}/${parsed.slug}` },
         };
       }
@@ -179,7 +197,7 @@ export function createReadExecute(wikiDir: string) {
             .join("\n");
 
           return {
-            content: [{ type: "text", text: `${header}\n\n${page.body}` }],
+            content: [{ type: "text", text: `${header}${openQuestionsNote(page.body)}\n\n${page.body}` }],
             details: { found: true, path: `${ref.category}/${ref.slug}` },
           };
         }
