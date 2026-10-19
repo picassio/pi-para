@@ -29,6 +29,8 @@ import type { ProjectScope } from "./scope.js";
 
 // Re-export QMDStore for convenience
 export type { QMDStore } from "qmd-engine";
+// What remote embedding requests used (tokens, cost), for a host that counts what search by meaning costs.
+export { onApiUsage, type ApiUsage } from "qmd-engine";
 
 // -- Types ------------------------------------------------------------------
 

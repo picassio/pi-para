@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.8.8] — 2026-10-19
+
+### Added
+- `onApiUsage` (from `pi-para/store`, qmd-engine 2.7.4): hear what each remote embedding request used (model, texts, prompt tokens, and the cost when the provider says it), so a host can count what the wiki's search by meaning costs.
+
 ## [0.8.7] — 2026-10-18
 
 ### Fixed
